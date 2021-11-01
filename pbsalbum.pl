@@ -129,6 +129,50 @@ The C<count> value must be an integer that is greater than zero.
 
 # @@TODO:
 
+# ==================
+# Program entrypoint
+# ==================
+
+# Check that we got exactly four parameters
+#
+($#ARGV == 3) or die "Wrong number of program arguments, stopped";
+
+# Grab the arguments
+#
+my $arg_ps_path     = $ARGV[0];
+my $arg_list_path   = $ARGV[1];
+my $arg_config_path = $ARGV[2];
+my $arg_layout_path = $ARGV[3];
+
+# Read all the file paths in the given list file into an array,
+# discarding any blank or empty lines, and also verifying that all paths
+# currently exist as regular files
+#
+my @file_list;
+
+open(my $fh_list, "<", $arg_list_path) or
+  die "Can't open '$arg_list_path', stopped";
+
+while (<$fh_list>) {
+  # Removing any trailing break from the line
+  chomp;
+  
+  # Skip this line if empty or nothing but whitespace
+  next if /^\s*$/a;
+  
+  # Trim leading and trailing whitespace
+  s/^\s*//a;
+  s/\s*$//a;
+  
+  # Check that file exists
+  (-f $_) or die "Can't find file '$_', stopped";
+  
+  # Add the file path to the list
+  push @file_list, ($_);
+}
+
+close($fh_list);
+
 =head1 AUTHOR
 
 Noah Johnson, C<noah.johnson@loupmail.com>
