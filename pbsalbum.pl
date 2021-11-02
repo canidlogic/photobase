@@ -1,7 +1,9 @@
 #!/usr/bin/env perl
 use strict;
+
 use Config::Tiny;
 use Convert::Ascii85;
+use File::Spec;
 
 =head1 NAME
 
@@ -397,8 +399,45 @@ sub ps_cap {
   (($arg_w > 0) and ($arg_h > 0)) or
     die "Cell dimensions empty, stopped";
   
-  # @@TODO:
-  my $pic_name = 'PIC_TEST';
+  # We need the maxlen and ext font properties
+  ((exists $arg_p->{font_maxlen}) and (exists $arg_p->{font_ext})) or
+    die "Missing properties, stopped";
+  
+  my $maxlen = int($arg_p->{font_maxlen});
+  my $ext_array = $arg_p->{font_ext};
+  
+  ($maxlen > 0) or
+    die "maxlen parameter invalid, stopped";
+  
+  (ref($ext_array) eq 'ARRAY') or
+    die "Invalid extension array, stopped";
+  
+  # Get the filename
+  my $fname;
+  (undef, undef, $fname) = File::Spec->splitpath($arg_path);
+  ($fname and (length $fname > 0)) or
+    die "Can't get filename from '$arg_path', stopped";
+  
+  # Go through the extension array and if there are any matching
+  # extensions, drop from filename
+  for my $ext (@{$ext_array}) {
+    # Only proceed if file name is longer than extension
+    (length $fname > length $ext) or next;
+    
+    # Only proceed if extension matches (case-insensitive)
+    ($fname =~ /$ext$/ai) or next;
+    
+    # Drop the extension and leave
+    $fname = substr($fname, 0, -(length $ext));
+    last;
+  }
+  
+  # Check that file name does not exceed limit
+  (length $fname <= $maxlen) or
+    die "Filename in path '$arg_path' is too long, stopped";
+  
+  # Set picture name in caption to possibly trimmed filename
+  my $pic_name = $fname;
   
   # Convert dimension arguments to strings with one decimal place
   # precision
