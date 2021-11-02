@@ -128,7 +128,55 @@ The C<count> value must be an integer that is greater than zero.
 
 =cut
 
-# @@TODO:
+# ===============
+# Local functions
+# ===============
+
+# Convert a measurement with a unit into a PostScript point unit.
+#
+# Parameters:
+#
+#   1: [float ] - the measurement
+#   2: [string] - the measurement unit, either "point" "inch" or "mm"
+#
+# Return:
+#
+#   [float] the measurement converted into points if necessary
+#
+sub measure {
+  
+  # Must be exactly two parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_m    = shift;
+  my $arg_unit = shift;
+  
+  # Convert types
+  $arg_m    = $arg_m + 0.0;
+  $arg_unit = "$arg_unit";
+  
+  # Handle the different types
+  my $result;
+  if ($arg_unit eq 'point') {
+    # Already in points, so just copy to result
+    $result = $arg_m;
+    
+  } elsif ($arg_unit eq 'inch') {
+    # Exactly 72 points in an inch
+    $result = $arg_m * 72.0;
+    
+  } elsif ($arg_unit eq 'mm') {
+    # Exactly 25.4 mm in an inch, and exactly 72 points in an inch
+    $result = ($arg_m * 72.0) / 25.4;
+    
+  } else {
+    die "Unrecognized unit, stopped";
+  }
+  
+  # Return result
+  return $result;
+}
 
 # ==================
 # Program entrypoint
@@ -465,6 +513,44 @@ for my $pkey (keys %prop_type) {
     die "Unknown internal type name, stopped";
   }
 }
+
+# PostScript has all measurements in points, so convert all measurements
+#
+$prop_dict{'page_width'} = measure(
+                            $prop_dict{'page_width'},
+                            $prop_dict{'page_unit'});
+$prop_dict{'page_height'} = measure(
+                            $prop_dict{'page_height'},
+                            $prop_dict{'page_unit'});
+
+$prop_dict{'margin_left'} = measure(
+                            $prop_dict{'margin_left'},
+                            $prop_dict{'margin_unit'});
+$prop_dict{'margin_right'} = measure(
+                            $prop_dict{'margin_right'},
+                            $prop_dict{'margin_unit'});
+$prop_dict{'margin_top'} = measure(
+                            $prop_dict{'margin_top'},
+                            $prop_dict{'margin_unit'});
+$prop_dict{'margin_bottom'} = measure(
+                            $prop_dict{'margin_bottom'},
+                            $prop_dict{'margin_unit'});
+
+$prop_dict{'cell_vgap'} = measure(
+                            $prop_dict{'cell_vgap'},
+                            $prop_dict{'cell_unit'});
+$prop_dict{'cell_hgap'} = measure(
+                            $prop_dict{'cell_hgap'},
+                            $prop_dict{'cell_unit'});
+$prop_dict{'cell_igap'} = measure(
+                            $prop_dict{'cell_igap'},
+                            $prop_dict{'cell_unit'});
+
+delete $prop_dict{'page_unit'};
+delete $prop_dict{'margin_unit'};
+delete $prop_dict{'cell_unit'};
+
+# @@TODO:
 
 =head1 AUTHOR
 
