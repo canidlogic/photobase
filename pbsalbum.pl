@@ -64,6 +64,7 @@ album.  It has the following format:
   vgap=5
   hgap=10
   igap=5
+  caption=20
   
   [font]
   name=Courier-Bold
@@ -98,7 +99,8 @@ For the cell measurements, the C<vgap> is the space added between rows
 of cells on the page and the C<hgap> is the space added between columns
 of cells on the page.  The C<igap> is the internal space within the cell
 that separates the photo on top of the cell from the text caption on the
-bottom of the cell.
+bottom of the cell.  Finally, C<caption> is the height of the text
+captio, which must be greater than zero.
 
 The font name will be copied directly into the PostScript file.  It is
 up to the PostScript interpreter to interpret the font name.  It is
@@ -292,6 +294,8 @@ unless ($layout) {
   die "$arg_layout_path is missing hgap key in [cell], stopped";
 ($layout->{cell}->{igap}) or
   die "$arg_layout_path is missing igap key in [cell], stopped";
+($layout->{cell}->{caption}) or
+  die "$arg_layout_path is missing caption key in [cell], stopped";
 
 ($layout->{font}) or
   die "$arg_layout_path is missing [font] section, stopped";
@@ -335,6 +339,7 @@ $prop_dict{'cell_unit'} = $layout->{cell}->{unit};
 $prop_dict{'cell_vgap'} = $layout->{cell}->{vgap};
 $prop_dict{'cell_hgap'} = $layout->{cell}->{hgap};
 $prop_dict{'cell_igap'} = $layout->{cell}->{igap};
+$prop_dict{'cell_caption'} = $layout->{cell}->{caption};
 
 $prop_dict{'font_name'} = $layout->{font}->{name};
 $prop_dict{'font_size'} = $layout->{font}->{size};
@@ -365,10 +370,11 @@ my %prop_type = (
   margin_top    => 'float',
   margin_bottom => 'float',
   
-  cell_unit => 'unit',
-  cell_vgap => 'float',
-  cell_hgap => 'float',
-  cell_igap => 'float',
+  cell_unit    => 'unit',
+  cell_vgap    => 'float',
+  cell_hgap    => 'float',
+  cell_igap    => 'float',
+  cell_caption => 'float',
   
   font_name   => 'name',
   font_size   => 'float',
@@ -545,10 +551,93 @@ $prop_dict{'cell_hgap'} = measure(
 $prop_dict{'cell_igap'} = measure(
                             $prop_dict{'cell_igap'},
                             $prop_dict{'cell_unit'});
+$prop_dict{'cell_caption'} = measure(
+                            $prop_dict{'cell_igap'},
+                            $prop_dict{'cell_unit'});
 
 delete $prop_dict{'page_unit'};
 delete $prop_dict{'margin_unit'};
 delete $prop_dict{'cell_unit'};
+
+# Page dimensions must both be greater than zero
+#
+(($prop_dict{'page_width'} > 0) and ($prop_dict{'page_height'} > 0)) or
+  die "Page dimensions must be greater than zero, stopped";
+
+# Set any margin that is less than zero to zero (correct rounding
+# errors)
+#
+if ($prop_dict{'margin_left'} < 0) {
+  $prop_dict{'margin_left'} = 0;
+}
+if ($prop_dict{'margin_right'} < 0) {
+  $prop_dict{'margin_right'} = 0;
+}
+if ($prop_dict{'margin_top'} < 0) {
+  $prop_dict{'margin_top'} = 0;
+}
+if ($prop_dict{'margin_bottom'} < 0) {
+  $prop_dict{'margin_bottom'} = 0;
+}
+
+# Margins must be less than relevant page dimension
+#
+($prop_dict{'margin_left'} + $prop_dict{'margin_right'} <
+    $prop_dict{'page_width'}) or
+  die "Left and right margins are too large, stopped";
+
+($prop_dict{'margin_top'} + $prop_dict{'margin_bottom'} <
+    $prop_dict{'page_height'}) or
+  die "Top and bottom margins are too large, stopped";
+
+# Set any cell gap that is less than zero to zero (correct rounding
+# errors)
+#
+if ($prop_dict{'cell_vgap'} < 0) {
+  $prop_dict{'cell_vgap'} = 0;
+}
+if ($prop_dict{'cell_hgap'} < 0) {
+  $prop_dict{'cell_hgap'} = 0;
+}
+if ($prop_dict{'cell_igap'} < 0) {
+  $prop_dict{'cell_igap'} = 0;
+}
+
+# Check that caption height is greater than zero
+#
+($prop_dict{'cell_caption'} > 0) or
+  die "Caption line height must be greater than zero, stopped";
+
+# Check that cell measurements do not exceed relevant page dimensions;
+# we will do a more accurate check later when computing exact cell
+# dimensions
+#
+(($prop_dict{'cell_vgap'} < $prop_dict{'page_height'}) and
+    ($prop_dict{'cell_hgap'} < $prop_dict{'page_width'}) and
+    ($prop_dict{'cell_igap'} < $prop_dict{'page_height'}) and
+    ($prop_dict{'cell_caption'} < $prop_dict{'page_height'})) or
+  die "Cell dimensions too large, stopped";
+
+# Check that font size is greater than zero
+#
+($prop_dict{'font_size'} > 0) or
+  die "Font size must be greater than zero, stopped";
+
+# Check that maxlen is greater than zero
+#
+($prop_dict{'font_maxlen'} > 0) or
+  die "Font maxlen must be greater than zero, stopped";
+
+# Check that aspect ratio measurements are greater than zero
+#
+(($prop_dict{'aspect_awidth'} > 0) and
+    ($prop_dict{'aspect_aheight'} > 0)) or
+  die "Aspect ratio measurements must be greater than zero, stopped";
+
+# Check that tile count is greater than zero
+#
+($prop_dict{'tile_count'} > 0) or
+  die "Tiling count must be greater than zero, stopped";
 
 # @@TODO:
 
