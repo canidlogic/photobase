@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use Config::Tiny;
+use Convert::Ascii85;
 
 =head1 NAME
 
@@ -397,14 +398,43 @@ sub ps_cap {
     die "Cell dimensions empty, stopped";
   
   # @@TODO:
+  my $pic_name = 'PIC_TEST';
+  
+  # Convert dimension arguments to strings with one decimal place
+  # precision
+  $arg_x = sprintf("%.1f", $arg_x);
+  $arg_y = sprintf("%.1f", $arg_y);
+  $arg_w = sprintf("%.1f", $arg_w);
+  $arg_h = sprintf("%.1f", $arg_h);
+  
+  # Begin PostScript code by saving graphics state
   print {$arg_fh} "gsave\n";
-  print {$arg_fh} "$arg_x $arg_y moveto\n";
-  print {$arg_fh} "$arg_w 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h rlineto\n";
-  print {$arg_fh} "$arg_w neg 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h neg rlineto\n";
-  print {$arg_fh} "stroke\n";
-  print {$arg_fh} "grestore\n";
+  
+  # Push the caption string onto the PostScript stack, using base85
+  # encoding so we don't need escaping
+  $pic_name = Convert::Ascii85::encode($pic_name);
+  print {$arg_fh} "<~$pic_name~>\n";
+  
+  # [string] -> [string] [string_width]
+  print {$arg_fh} "dup stringwidth pop\n";
+  
+  # [string] [string_width] -> [string] [diff] where [diff] is the
+  # difference from the string width to the width of the caption area
+  print {$arg_fh} "$arg_w exch sub\n";
+  
+  # [string] [diff] -> [string] [x] where [x] is the X coordinate the
+  # string should be displayed at
+  print {$arg_fh} "2 div $arg_x add\n";
+  
+  # [string] [x] -> [string] [x] [y] where [y] is the Y coordinate of
+  # the baseline of the string on the page
+  print {$arg_fh} "$arg_y fontBase add\n";
+  
+  # [string] [x] [y] -> . and display string in the process
+  print {$arg_fh} "moveto show\n";
+  
+  # End PostScript code by restoring graphics state
+  print {$arg_fh} "grestore\n\n";
 }
 
 # Write the PostScript code for a complete photo cell.
