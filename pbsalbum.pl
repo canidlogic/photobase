@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
 use strict;
+use Config::Tiny;
 
 =head1 NAME
 
@@ -172,6 +173,133 @@ while (<$fh_list>) {
 }
 
 close($fh_list);
+
+# Now we will construct the properties dictionary
+#
+my %prop_dict;
+
+# Open the platform configuration file and add any relevant properties
+# to the properties dictionary
+#
+my $config = Config::Tiny->read($arg_config_path);
+
+unless ($config) {
+  my $es = Config::Tiny->errstr();
+  die "Failed to load '$arg_config_path':\n$es\nStopped";
+}
+
+($config->{apps}) or
+  die "$arg_config_path is missing [apps] section, stopped";
+
+($config->{apps}->{gm}) or
+  die "$arg_config_path is missing gm key in [apps], stopped";
+($config->{apps}->{bin2base85}) or
+  die "$arg_config_path is missing bin2base85 key in [apps], stopped";
+
+$prop_dict{'apps_gm'} = $config->{apps}->{gm};
+$prop_dict{'apps_bin2base85'} = $config->{apps}->{bin2base85};
+
+undef $config;
+
+# Open the layout configuration file and add any relevant properties to
+# the properties dictionary
+#
+my $layout = Config::Tiny->read($arg_layout_path);
+
+unless ($layout) {
+  my $es = Config::Tiny->errstr();
+  die "Failed to load '$arg_layout_path':\n$es\nStopped";
+}
+
+($layout->{page}) or
+  die "$arg_layout_path is missing [page] section, stopped";
+
+($layout->{page}->{unit}) or
+  die "$arg_layout_path is missing unit key in [page], stopped";
+($layout->{page}->{width}) or
+  die "$arg_layout_path is missing width key in [page], stopped";
+($layout->{page}->{height}) or
+  die "$arg_layout_path is missing height key in [page], stopped";
+
+($layout->{margin}) or
+  die "$arg_layout_path is missing [margin] section, stopped";
+
+($layout->{margin}->{unit}) or
+  die "$arg_layout_path is missing unit key in [margin], stopped";
+($layout->{margin}->{left}) or
+  die "$arg_layout_path is missing left key in [margin], stopped";
+($layout->{margin}->{right}) or
+  die "$arg_layout_path is missing right key in [margin], stopped";
+($layout->{margin}->{bottom}) or
+  die "$arg_layout_path is missing bottom key in [margin], stopped";
+
+($layout->{cell}) or
+  die "$arg_layout_path is missing [cell] section, stopped";
+
+($layout->{cell}->{unit}) or
+  die "$arg_layout_path is missing unit key in [cell], stopped";
+($layout->{cell}->{vgap}) or
+  die "$arg_layout_path is missing vgap key in [cell], stopped";
+($layout->{cell}->{hgap}) or
+  die "$arg_layout_path is missing hgap key in [cell], stopped";
+($layout->{cell}->{igap}) or
+  die "$arg_layout_path is missing igap key in [cell], stopped";
+
+($layout->{font}) or
+  die "$arg_layout_path is missing [font] section, stopped";
+
+($layout->{font}->{name}) or
+  die "$arg_layout_path is missing name key in [font], stopped";
+($layout->{font}->{size}) or
+  die "$arg_layout_path is missing size key in [font], stopped";
+($layout->{font}->{maxlen}) or
+  die "$arg_layout_path is missing maxlen key in [font], stopped";  
+($layout->{font}->{ext}) or
+  die "$arg_layout_path is missing ext key in [font], stopped";
+
+($layout->{aspect}) or
+  die "$arg_layout_path is missing [aspect] section, stopped";
+
+($layout->{aspect}->{awidth}) or
+  die "$arg_layout_path is missing awidth key in [aspect], stopped";
+($layout->{aspect}->{aheight}) or
+  die "$arg_layout_path is missing aheight key in [aspect], stopped";
+
+($layout->{tile}) or
+  die "$arg_layout_path is missing [tile] section, stopped";
+
+($layout->{tile}->{dim}) or
+  die "$arg_layout_path is missing dim key in [tile], stopped";
+($layout->{tile}->{count}) or
+  die "$arg_layout_path is missing count key in [tile], stopped";
+
+$prop_dict{'page_unit'} = $layout->{page}->{unit};
+$prop_dict{'page_width'} = $layout->{page}->{width};
+$prop_dict{'page_height'} = $layout->{page}->{height};
+
+$prop_dict{'margin_unit'} = $layout->{margin}->{unit};
+$prop_dict{'margin_left'} = $layout->{margin}->{left};
+$prop_dict{'margin_right'} = $layout->{margin}->{right};
+$prop_dict{'margin_top'} = $layout->{margin}->{top};
+$prop_dict{'margin_bottom'} = $layout->{margin}->{bottom};
+
+$prop_dict{'cell_unit'} = $layout->{cell}->{unit};
+$prop_dict{'cell_vgap'} = $layout->{cell}->{vgap};
+$prop_dict{'cell_hgap'} = $layout->{cell}->{hgap};
+$prop_dict{'cell_igap'} = $layout->{cell}->{igap};
+
+$prop_dict{'font_name'} = $layout->{font}->{name};
+$prop_dict{'font_size'} = $layout->{font}->{size};
+$prop_dict{'font_maxlen'} = $layout->{font}->{maxlen};
+$prop_dict{'font_ext'} = $layout->{font}->{ext};
+
+$prop_dict{'aspect_awidth'} = $layout->{aspect}->{awidth};
+$prop_dict{'aspect_aheight'} = $layout->{aspect}->{aheight};
+
+$prop_dict{'tile_dim'} = $layout->{tile}->{dim};
+$prop_dict{'tile_count'} = $layout->{tile}->{count};
+
+undef $layout;
 
 =head1 AUTHOR
 
