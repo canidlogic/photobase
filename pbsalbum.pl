@@ -83,6 +83,10 @@ album.  It has the following format:
   dim=col
   count=12
   
+  [scale]
+  swidth=640
+  sheight=480
+  
 In this layout file, you declare the dimensions of each page in the
 generated PostScript file, the margins within the page, the spacing
 within each picture cell, the font used for labels, the aspect ratio of
@@ -127,9 +131,14 @@ their ratio is relevant.  If any of the input photos do not match this
 aspect ratio, they will be distorted by stretching when displayed in the
 PostScript document.
 
-Finally, the tiling section requires you either to give the number of
-columns on each page (C<dim=col>) or the number of rows (C<dim=row>).
-The C<count> value must be an integer that is greater than zero.
+The tiling section requires you either to give the number of columns on
+each page (C<dim=col>) or the number of rows (C<dim=row>).  The C<count>
+value must be an integer that is greater than zero.
+
+Finally, the scaling section determines how many pixels should be in the
+scaled image that is embedded.  The C<swidth> and C<sheight> parameters
+do not matter by themselves, but when multiplied together they give the
+target pixel count.
 
 =cut
 
@@ -718,6 +727,14 @@ unless ($layout) {
 ($layout->{tile}->{count}) or
   die "$arg_layout_path is missing count key in [tile], stopped";
 
+($layout->{scale}) or
+  die "$arg_layout_path is missing [scale] section, stopped";
+
+($layout->{scale}->{swidth}) or
+  die "$arg_layout_path is missing swidth key in [scale], stopped";
+($layout->{scale}->{sheight}) or
+  die "$arg_layout_path is missing sheight key in [scale], stopped";
+
 $prop_dict{'page_unit'} = $layout->{page}->{unit};
 $prop_dict{'page_width'} = $layout->{page}->{width};
 $prop_dict{'page_height'} = $layout->{page}->{height};
@@ -744,6 +761,9 @@ $prop_dict{'aspect_aheight'} = $layout->{aspect}->{aheight};
 
 $prop_dict{'tile_dim'} = $layout->{tile}->{dim};
 $prop_dict{'tile_count'} = $layout->{tile}->{count};
+
+$prop_dict{'scale_swidth'} = $layout->{scale}->{swidth};
+$prop_dict{'scale_sheight'} = $layout->{scale}->{sheight};
 
 undef $layout;
 
@@ -778,7 +798,10 @@ my %prop_type = (
   aspect_aheight => 'float',
   
   tile_dim   => 'dim',
-  tile_count => 'int'
+  tile_count => 'int',
+  
+  scale_swidth => 'int',
+  scale_sheight => 'int'
 );
 
 for my $pkey (keys %prop_type) {
@@ -1032,6 +1055,12 @@ if ($prop_dict{'cell_igap'} < 0) {
 ($prop_dict{'tile_count'} > 0) or
   die "Tiling count must be greater than zero, stopped";
 
+# Check that scaling dimensions are greater than zero
+#
+(($prop_dict{'scale_swidth'} > 0) and
+    ($prop_dict{'scale_sheight'} > 0)) or
+  die "Scaling dimensions must be greater than zero, stopped";
+
 # We now need to figure out the actual dimensions of each photo cell on
 # the page; this is different depending on the tiling dimension
 #
@@ -1267,6 +1296,13 @@ if ($table_height < $prop_dict{'page_height'}
   $prop_dict{'margin_bottom'} = $prop_dict{'margin_bottom'}
                                 + ($extra_h / 2);
 }
+
+# Replace the scaling information with a pixel count scale_pix
+#
+$prop_dict{'scale_pix'} = $prop_dict{'swidth'} * $prop_dict{'sheight'};
+
+delete $prop_dict{'swidth'};
+delete $prop_dict{'sheight'};
 
 # Time to open the output file
 #
