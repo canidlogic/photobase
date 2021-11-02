@@ -832,6 +832,49 @@ if ($prop_dict{'tile_dim'} eq 'row') {
   die "Unrecognized tiling dimension, stopped";
 }
 
+# Now that we know the exact photo cell dimensions and the full tiling
+# count, compute the full dimensions of the photo table on the page
+#
+my $table_width = $prop_dict{'tile_cols'} * $cell_width;
+my $table_height = $prop_dict{'tile_rows'} * $cell_height;
+
+(($table_width > 0) and ($table_height > 0)) or
+  die "Numeric problem, stopped";
+
+# Expand margins if necessary so that content area of page is exactly
+# equal to content area of photo table; this will ensure the table is
+# centered
+#
+if ($table_width < $prop_dict{'page_width'}
+                      - $prop_dict{'margin_left'}
+                      - $prop_dict{'margin_right'}) {
+  
+  my $extra_w = $prop_dict{'page_width'}
+                  - $prop_dict{'margin_left'}
+                  - $prop_dict{'margin_right'}
+                  - $table_width;
+  
+  $prop_dict{'margin_left'} = $prop_dict{'margin_left'}
+                                + ($extra_w / 2);
+  $prop_dict{'margin_right'} = $prop_dict{'margin_right'}
+                                + ($extra_w / 2);
+}
+
+if ($table_height < $prop_dict{'page_height'}
+                      - $prop_dict{'margin_top'}
+                      - $prop_dict{'margin_bottom'}) {
+  
+  my $extra_h = $prop_dict{'page_height'}
+                  - $prop_dict{'margin_top'}
+                  - $prop_dict{'margin_bottom'}
+                  - $table_height;
+  
+  $prop_dict{'margin_top'} = $prop_dict{'margin_top'}
+                                + ($extra_h / 2);
+  $prop_dict{'margin_bottom'} = $prop_dict{'margin_bottom'}
+                                + ($extra_h / 2);
+}
+
 # @@TODO:
 
 =head1 AUTHOR
