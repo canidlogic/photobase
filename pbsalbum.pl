@@ -639,6 +639,149 @@ if ($prop_dict{'cell_igap'} < 0) {
 ($prop_dict{'tile_count'} > 0) or
   die "Tiling count must be greater than zero, stopped";
 
+# We now need to figure out the actual dimensions of each photo cell on
+# the page; this is different depending on the tiling dimension
+#
+my $cell_width;
+my $cell_height;
+if ($prop_dict{'tile_dim'} eq 'row') {
+  # Tiling specifies row count, so we compute height of cell first;
+  # begin by dividing up the vertical space that remains after taking
+  # out the margins
+  $cell_height = ($prop_dict{'page_height'}
+                    - $prop_dict{'margin_top'}
+                    - $prop_dict{'margin_bottom'})
+                      / $prop_dict{'tile_count'};
+  ($cell_height > 0) or die "Numeric problem, stopped";
+  
+  # Photo cell height must be greater than two vertical gaps, the inner
+  # gap, and the caption height
+  ($cell_height > (
+        (2 * $prop_dict{'cell_vgap'})
+          + $prop_dict{'cell_igap'}
+          + $prop_dict{'cell_caption'}
+      )) or
+    die "Cell too small after subdivision, stopped";
+  
+  # The actual height of the photo on the page is the photo cell height
+  # subtracted by two vertical gaps, the inner gap, and the caption
+  # height
+  my $photo_height = $cell_height - (
+                        (2 * $prop_dict{'cell_vgap'})
+                          + $prop_dict{'cell_igap'}
+                          + $prop_dict{'cell_caption'}
+                      );
+  ($photo_height > 0) or die "Numeric problem, stopped";
+  
+  # Now compute the corresponding photo width according to the aspect
+  # ratio
+  my $photo_width = ($photo_height * $prop_dict{'aspect_awidth'})
+                      / $prop_dict{'aspect_aheight'};
+  ($photo_width > 0) or die "Numeric problem, stopped";
+  
+  # We can now compute the cell width by adding two times the horizontal
+  # gap to the photo width
+  $cell_width = $photo_width + (2 * $prop_dict{'cell_hgap'});
+  
+  # If the cell width exceeds the page width minus the margins, then we
+  # need to shrink the cell width and recompute the cell height
+  unless ($cell_width <= $prop_dict{'page_width'}
+                            - $prop_dict{'margin_left'}
+                            - $prop_dict{'margin_right'}) {
+    
+    # Set the cell width to maximum possible
+    $cell_width = $prop_dict{'page_width'}
+                    - $prop_dict{'margin_left'}
+                    - $prop_dict{'margin_right'};
+    ($cell_width > 0) or die "Numeric problem, stopped";
+    
+    # Compute the photo width as the cell width minus two times the
+    # horizontal gap
+    $photo_width = $cell_width - (2 * $prop_dict{'cell_hgap'});
+    ($photo_width > 0) or die "Numeric problem, stopped";
+    
+    # Recompute the photo height using aspect ratio
+    $photo_height = ($photo_width * $prop_dict{'aspect_aheight'})
+                      / $prop_dict{'aspect_awidth'};
+    ($photo_height > 0) or die "Numeric problem, stopped";
+    
+    # Now recompute the cell height by adding two times the vertical
+    # gap, the inner gap, and the caption height to the photo height
+    $cell_height = $photo_height
+                      + (2 * $prop_dict{'cell_vgap'})
+                      + $prop_dict{'cell_igap'}
+                      + $prop_dict{'cell_caption'};
+    ($cell_height > 0) or die "Numeric problem, stopped";
+  }
+  
+} elsif ($prop_dict{'tile_dim'} eq 'col') {
+  # Tiling specifies column count, so we compute width of cell first;
+  # begin by dividing up the horizontal space that remains after taking
+  # out the margins
+  $cell_width = ($prop_dict{'page_width'}
+                    - $prop_dict{'margin_left'}
+                    - $prop_dict{'margin_right'})
+                      / $prop_dict{'tile_count'};
+  ($cell_width > 0) or die "Numeric problem, stopped";
+  
+  # Photo cell width must be greater than two horizontal gaps
+  ($cell_width > 2 * $prop_dict{'cell_hgap'}) or
+    die "Cell too small after subdivision, stopped";
+  
+  # The actual width of the photo on the page is the photo cell width
+  # subtracted by two horizontal gaps
+  my $photo_width = $cell_width - (2 * $prop_dict{'cell_hgap'});
+  ($photo_width > 0) or die "Numeric problem, stopped";
+  
+  # Now compute the corresponding photo height according to the aspect
+  # ratio
+  my $photo_height = ($photo_width * $prop_dict{'aspect_aheight'})
+                      / $prop_dict{'aspect_awidth'};
+  ($photo_height > 0) or die "Numeric problem, stopped";
+  
+  # We can now compute the cell height by adding two times the vertical
+  # gap, the inner gap, and the caption height to the photo height
+  $cell_height = $photo_height
+                    + (2 * $prop_dict{'cell_vgap'})
+                    + $prop_dict{'cell_igap'}
+                    + $prop_dict{'cell_caption'};
+  
+  # If the cell height exceeds the page height minus the margins, then
+  # we need to shrink the cell height and recompute the cell width
+  unless ($cell_height <= $prop_dict{'page_height'}
+                            - $prop_dict{'margin_top'}
+                            - $prop_dict{'margin_bottom'}) {
+    
+    # Set the cell height to maximum possible
+    $cell_height = $prop_dict{'page_height'}
+                    - $prop_dict{'margin_top'}
+                    - $prop_dict{'margin_bottom'};
+    ($cell_height > 0) or die "Numeric problem, stopped";
+    
+    # Compute the photo height as the cell height minus two times the
+    # vertical gap, the inner gap, and the caption height
+    $photo_height = $cell_height - (
+                            (2 * $prop_dict{'cell_vgap'})
+                            + $prop_dict{'cell_igap'}
+                            + $prop_dict{'cell_caption'}
+                          );
+    ($photo_height > 0) or die "Numeric problem, stopped";
+    
+    # Recompute the photo width using aspect ratio
+    $photo_width = ($photo_height * $prop_dict{'aspect_awidth'})
+                      / $prop_dict{'aspect_aheight'};
+    ($photo_width > 0) or die "Numeric problem, stopped";
+    
+    # Now recompute the cell width by adding two times the horizontal
+    # gap to the photo width
+    $cell_width = $photo_width + (2 * $prop_dict{'cell_hgap'});
+    ($cell_width > 0) or die "Numeric problem, stopped";
+  }
+  
+} else {
+  die "Unrecognized tiling dimension, stopped";
+}
+
 # @@TODO:
 
 =head1 AUTHOR
