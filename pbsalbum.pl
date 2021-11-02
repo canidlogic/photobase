@@ -413,7 +413,53 @@ for my $pkey (keys %prop_type) {
     $prop_dict{$pkey} = $val;
     
   } elsif ($ptype eq 'ext_array') {
-    # @@TODO:
+    # File extension array -- first check for special case of empty
+    # array
+    if (length $val < 1) {
+      # Empty extension array
+      $prop_dict{$pkey} = [];
+      
+    } else {
+      # Not an empty extension array, so begin by making all letters
+      # lowercase (matching will be case-insensitive) and dropping any
+      # internal whitespace
+      $val =~ tr/A-Z/a-z/;
+      $val =~ s/(\s)+//ag;
+      
+      # Make sure only printing characters remain
+      ($val =~ /^(\p{POSIX_Graph})+$/) or
+        die "Extension array contains control characters, stopped";
+      
+      # Now define a grammar for the file extension array
+      my $ext_rx = qr{
+      
+        # Main pattern
+        (?&ext_list)
+        
+        # Definitions
+        (?(DEFINE)
+        
+          # File extension segment, beginning with dot
+          (?<ext_seg> (?: \. [^\.\;]+))
+          
+          # File extension, a sequence of segments
+          (?<ext> (?: (?&ext_seg))+)
+          
+          # List of file extensions, separated by semicolons
+          (?<ext_list> (?: (?&ext) (\; (?&ext))*))
+        )
+      }x;
+
+      # Check that extension list matches the grammar
+      ($val =~ /^(?:$ext_rx)$/a) or
+        die "Extension array syntax error, stopped";
+      
+      # Get an array of file extensions
+      my @ext_array = split /;/, $val;
+      
+      # Store a reference to this array as the property value
+      $prop_dict{$pkey} = \@ext_array;
+    }
     
   } else {
     die "Unknown internal type name, stopped";
