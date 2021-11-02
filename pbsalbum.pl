@@ -251,6 +251,7 @@ sub ps_header {
   $page_width = sprintf("%.1f", $page_width);
   $page_height = sprintf("%.1f", $page_height);
   
+  print {$arg_fh} "% Page dimensions (PostScript points)\n";
   print {$arg_fh} "% Page width : $page_width\n";
   print {$arg_fh} "% Page height: $page_height\n";
   
@@ -289,17 +290,121 @@ sub ps_header {
   # where [h] is the full height of the bounding box
   print {$arg_fh} "neg add\n";
   
-  # [lower_y] [upper_y] [h] -> [upper_y] [h]
-  print {$arg_fh} "3 -1 roll pop\n";
+  # [lower_y] [upper_y] [h] -> [lower_y] [h]
+  print {$arg_fh} "exch pop\n";
   
   # Define fontHeight as the height of the font, fontBase as the
-  # vertical distance between top of bounding box to baseline, and clear
-  # the PostScript stack
+  # vertical distance between bottom of bounding box to baseline, and
+  # clear the PostScript stack in the process
   print {$arg_fh} "/fontHeight exch def\n";
-  print {$arg_fh} "/fontBase exch def\n";
+  print {$arg_fh} "/fontBase exch neg def\n";
   
   # Restore graphics state after determining font height
   print {$arg_fh} "grestore\n\n";
+}
+
+# Write the PostScript code for the image within a photo cell.
+#
+# Parameters:
+#
+#   1: [file handle ref] - the output file to write
+#   2: [hash reference ] - the parameters dictionary
+#   3: [float ] - X page coordinate of BOTTOM-left corner of image
+#   4: [float ] - Y page coordinate of BOTTOM-left corner of image
+#   5: [float ] - width of image on page
+#   6: [float ] - height of image on page
+#   7: [string] - path to photo file
+#
+sub ps_pic {
+  
+  # Must be exactly seven parameters
+  ($#_ == 6) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_fh   = shift;
+  my $arg_p    = shift;
+  my $arg_x    = shift;
+  my $arg_y    = shift;
+  my $arg_w    = shift;
+  my $arg_h    = shift;
+  my $arg_path = shift;
+  
+  # Check types
+  (ref($arg_p) eq 'HASH') or
+    die "Wrong parameter type, stopped";
+  
+  $arg_x = $arg_x + 0.0;
+  $arg_y = $arg_y + 0.0;
+  $arg_w = $arg_w + 0.0;
+  $arg_h = $arg_h + 0.0;
+  
+  $arg_path = "$arg_path";
+  
+  # Width and height must be greater than zero
+  (($arg_w > 0) and ($arg_h > 0)) or
+    die "Picture dimensions empty, stopped";
+  
+  # @@TODO:
+  print {$arg_fh} "gsave\n";
+  print {$arg_fh} "$arg_x $arg_y moveto\n";
+  print {$arg_fh} "$arg_w 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h rlineto\n";
+  print {$arg_fh} "$arg_w neg 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h neg rlineto\n";
+  print {$arg_fh} "stroke\n";
+  print {$arg_fh} "grestore\n";
+}
+
+# Write the PostScript code for the caption of a photo cell.
+#
+# Parameters:
+#
+#   1: [file handle ref] - the output file to write
+#   2: [hash reference ] - the parameters dictionary
+#   3: [float ] - X page coordinate of BOTTOM-left corner of caption
+#   4: [float ] - Y page coordinate of BOTTOM-left corner of caption
+#   5: [float ] - width of caption area on page
+#   6: [float ] - height of caption area on page
+#   7: [string] - path to photo file
+#
+sub ps_cap {
+  
+  # Must be exactly seven parameters
+  ($#_ == 6) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_fh   = shift;
+  my $arg_p    = shift;
+  my $arg_x    = shift;
+  my $arg_y    = shift;
+  my $arg_w    = shift;
+  my $arg_h    = shift;
+  my $arg_path = shift;
+  
+  # Check types
+  (ref($arg_p) eq 'HASH') or
+    die "Wrong parameter type, stopped";
+  
+  $arg_x = $arg_x + 0.0;
+  $arg_y = $arg_y + 0.0;
+  $arg_w = $arg_w + 0.0;
+  $arg_h = $arg_h + 0.0;
+  
+  $arg_path = "$arg_path";
+  
+  # Width and height must be greater than zero
+  (($arg_w > 0) and ($arg_h > 0)) or
+    die "Cell dimensions empty, stopped";
+  
+  # @@TODO:
+  print {$arg_fh} "gsave\n";
+  print {$arg_fh} "$arg_x $arg_y moveto\n";
+  print {$arg_fh} "$arg_w 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h rlineto\n";
+  print {$arg_fh} "$arg_w neg 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h neg rlineto\n";
+  print {$arg_fh} "stroke\n";
+  print {$arg_fh} "grestore\n";
 }
 
 # Write the PostScript code for a complete photo cell.
@@ -343,15 +448,55 @@ sub ps_cell {
   (($arg_w > 0) and ($arg_h > 0)) or
     die "Cell dimensions empty, stopped";
   
-  # @@TODO:
-  print {$arg_fh} "gsave\n";
-  print {$arg_fh} "$arg_x $arg_y moveto\n";
-  print {$arg_fh} "$arg_w 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h rlineto\n";
-  print {$arg_fh} "$arg_w neg 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h neg rlineto\n";
-  print {$arg_fh} "stroke\n";
-  print {$arg_fh} "grestore\n";
+  # We need the cell metric properties
+  ((exists $arg_p->{cell_vgap}) and
+      (exists $arg_p->{cell_hgap}) and
+      (exists $arg_p->{cell_igap}) and
+      (exists $arg_p->{cell_caption})) or
+    die "Missing parameters, stopped";
+  
+  my $vgap    = $arg_p->{cell_vgap} + 0.0;
+  my $hgap    = $arg_p->{cell_hgap} + 0.0;
+  my $igap    = $arg_p->{cell_igap} + 0.0;
+  my $caption = $arg_p->{cell_caption} + 0.0;
+  
+  (($vgap >= 0) and ($hgap >= 0) and ($igap >= 0)) or
+    die "Invalid gap values, stopped";
+  
+  ($caption > 0) or
+    die "Invalid caption height, stopped";
+  
+  # Check cell metrics against cell dimensions
+  ((2 * $vgap) + $igap + $caption < $arg_h) or
+    die "Cell vertical spacing error, stopped";
+  
+  (2 * $hgap < $arg_w) or
+    die "Cell horizontal spacing error, stopped";
+  
+  # Determine caption location
+  my $cap_x = $arg_x + $hgap;
+  my $cap_y = $arg_y + $vgap;
+  my $cap_w = $arg_w - (2 * $hgap);
+  my $cap_h = $caption;
+  
+  (($cap_w > 0) and ($cap_h > 0)) or die "Numeric problem, stopped";
+  
+  # Determine image location
+  my $img_x = $arg_x + $hgap;
+  my $img_y = $arg_y + $vgap + $caption + $igap;
+  my $img_w = $arg_w - (2 * $hgap);
+  my $img_h = $arg_h - (2 * $vgap) - $caption - $igap;
+  
+  (($img_w > 0) and ($img_h > 0)) or die "Numeric problem, stopped";
+  
+  # Draw the caption and the picture
+  ps_cap($arg_fh, $arg_p,
+          $cap_x, $cap_y, $cap_w, $cap_h,
+          $arg_path);
+  
+  ps_pic($arg_fh, $arg_p,
+          $img_x, $img_y, $img_w, $img_h,
+          $arg_path);
 }
 
 # ==================
