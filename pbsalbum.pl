@@ -782,6 +782,56 @@ if ($prop_dict{'tile_dim'} eq 'row') {
   die "Unrecognized tiling dimension, stopped";
 }
 
+# We now know the actual dimensions of each photo cell, so we now
+# compute the full tiling information, in new tile_rows and tile_cols
+# parameters to replace the previous parameters
+#
+if ($prop_dict{'tile_dim'} eq 'row') {
+  # We were given the number of rows, so copy that
+  $prop_dict{'tile_rows'} = $prop_dict{'tile_count'};
+  
+  # Compute the number of columns as the page width less the margins,
+  # divided by the cell width, rounded down, and then made at least one
+  my $cols = $prop_dict{'page_width'}
+              - $prop_dict{'margin_left'}
+              - $prop_dict{'margin_right'};
+  $cols = int($cols / $cell_width);
+  if ($cols < 1) {
+    $cols = 1;
+  }
+  
+  # Store the rest of the new tiling information and drop the old tiling
+  # information
+  $prop_dict{'tile_cols'} = $cols;
+  
+  delete $prop_dict{'tile_dim'};
+  delete $prop_dict{'tile_count'};
+  
+} elsif ($prop_dict{'tile_dim'} eq 'col') {
+  # We were given the number of columns, so copy that
+  $prop_dict{'tile_cols'} = $prop_dict{'tile_count'};
+  
+  # Compute the number of rows as the page height less the margins,
+  # divided by the cell height, rounded down, and then made at least one
+  my $rows = $prop_dict{'page_height'}
+              - $prop_dict{'margin_top'}
+              - $prop_dict{'margin_bottom'};
+  $rows = int($rows / $cell_height);
+  if ($rows < 1) {
+    $rows = 1;
+  }
+  
+  # Store the rest of the new tiling information and drop the old tiling
+  # information
+  $prop_dict{'tile_rows'} = $rows;
+  
+  delete $prop_dict{'tile_dim'};
+  delete $prop_dict{'tile_count'};
+  
+} else {
+  die "Unrecognized tiling dimension, stopped";
+}
+
 # @@TODO:
 
 =head1 AUTHOR
