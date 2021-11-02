@@ -301,6 +301,125 @@ $prop_dict{'tile_count'} = $layout->{tile}->{count};
 
 undef $layout;
 
+# Define the type of each property and type-convert all properties
+#
+my %prop_type = (
+  apps_gm         => 'string',
+  apps_bin2base85 => 'string',
+  
+  page_unit   => 'unit',
+  page_width  => 'float',
+  page_height => 'float',
+  
+  margin_unit   => 'unit',
+  margin_left   => 'float',
+  margin_right  => 'float',
+  margin_top    => 'float',
+  margin_bottom => 'float',
+  
+  cell_unit => 'unit',
+  cell_vgap => 'float',
+  cell_hgap => 'float',
+  cell_igap => 'float',
+  
+  font_name   => 'name',
+  font_size   => 'float',
+  font_maxlen => 'int',
+  font_ext    => 'ext_array',
+  
+  aspect_awidth  => 'float',
+  aspect_aheight => 'float',
+  
+  tile_dim   => 'dim',
+  tile_count => 'int'
+);
+
+for my $pkey (keys %prop_type) {
+
+  # Check that property exists in property dictionary
+  ($prop_dict{$pkey}) or die "Missing property key '$pkey', stopped";
+  
+  # Get the value of the property as a string, check that exclusively
+  # ASCII, and trim leading and trailing whitespace
+  my $val = $prop_dict{$pkey};
+  $val = "$val";
+  
+  ($val =~ /^[\p{ASCII}]*$/u) or
+    die "Property '$pkey' contains non-ASCII characters, stopped";
+  
+  $val =~ s/^(\s)+//a;
+  $val =~ s/(\s)+$//a;
+  
+  # Handle appropriate type conversion
+  my $ptype = $prop_type{$pkey};
+  if ($ptype eq 'string') {
+    # Unrestricted string
+    $prop_dict{$pkey} = $val;
+    
+  } elsif ($ptype eq 'name') {
+    # PostScript name -- first make sure that length is at least one
+    (length $val > 0) or die "Property '$pkey' can't be empty, stopped";
+    
+    # Next, make sure there are only ASCII non-whitespace, non-control
+    # characters in the string
+    ($val =~ /^[\p{POSIX_Graph}]+$/a) or
+      die "Property '$pkey' contains invalid characters, stopped";
+    
+    # Make sure there are no delimiters in the string
+    ($val =~ /^[^\<\>\(\)\[\]\{\}]+$/a) or
+      die "Font name '$val' may not contain delimiters, stopped";
+    
+    # Store the checked string
+    $prop_dict{$pkey} = $val;
+    
+  } elsif ($ptype eq 'float') {
+    # Floating-point value -- check format
+    ($val =~ /^[0-9]*(?:\.[0-9]*)?$/a) or
+      die "Property '$pkey' has invalid float value, stopped";
+    ($val =~ /[0-9]/a) or
+      die "Property '$pkey' has invalid float value, stopped";
+    
+    # Convert to float and store
+    $prop_dict{$pkey} = $val + 0.0;
+    
+  } elsif ($ptype eq 'int') {
+    # Integer value -- check format
+    ($val =~ /^[0-9]+$/a) or
+      die "Property '$pkey' has invalid integer value, stopped";
+    
+    # Convert to integer and store
+    $prop_dict{$pkey} = int($val);
+    
+  } elsif ($ptype eq 'unit') {
+    # Unit specifier -- convert to lowercase first
+    $val =~ tr/A-Z/a-z/;
+    
+    # Check value
+    (($val eq 'mm') or ($val eq 'inch') or ($val eq 'point')) or
+      die "Unit name '$val' is not recognized, stopped";
+    
+    # Store the checked value
+    $prop_dict{$pkey} = $val;
+    
+  } elsif ($ptype eq 'dim') {
+    # Dimension specifier -- convert to lowercase first
+    $val =~ tr/A-Z/a-z/;
+    
+    # Check value
+    (($val eq 'row') or ($val eq 'col')) or
+      die "Dimension name '$val' is not recognized, stopped";
+    
+    # Store the checked value
+    $prop_dict{$pkey} = $val;
+    
+  } elsif ($ptype eq 'ext_array') {
+    # @@TODO:
+    
+  } else {
+    die "Unknown internal type name, stopped";
+  }
+}
+
 =head1 AUTHOR
 
 Noah Johnson, C<noah.johnson@loupmail.com>
