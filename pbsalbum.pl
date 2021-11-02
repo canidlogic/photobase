@@ -180,6 +180,180 @@ sub measure {
   return $result;
 }
 
+# Write the PostScript file header.
+#
+# Parameters:
+#
+#   1: [file handle ref] - the output file to write
+#   2: [hash reference ] - the parameters dictionary
+#
+sub ps_header {
+  
+  # Must be exactly two parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_fh = shift;
+  my $arg_p  = shift;
+  
+  # Check type
+  (ref($arg_p) eq 'HASH') or
+    die "Wrong parameter type, stopped";
+  
+  # We need the font name and font size
+  ((exists $arg_p->{'font_name'}) and (exists $arg_p->{'font_size'})) or
+    die "Missing properties, stopped";
+  
+  my $font_name = $arg_p->{'font_name'};
+  my $font_size = $arg_p->{'font_size'};
+  
+  $font_name = "$font_name";
+  $font_size = $font_size + 0.0;
+  
+  ((length $font_name > 0) and
+      ($font_name =~ /^[\p{POSIX_Graph}]+$/a) and
+      ($font_name =~ /^[^\<\>\(\)\[\]\{\}]+$/a)) or
+    die "Font name invalid, stopped";
+  
+  ($font_size > 0) or
+    die "Invalid font size, stopped";
+  
+  # If font size less than 0.5, set to 0.5
+  if ($font_size < 0.5) {
+    $font_size = 0.5;
+  }
+  
+  # We also need the page dimensions
+  ((exists $arg_p->{'page_width'}) and
+      (exists $arg_p->{'page_height'})) or
+    die "Missing parameters, stopped";
+  
+  my $page_width = $arg_p->{'page_width'};
+  my $page_height = $arg_p->{'page_height'};
+  
+  $page_width = $page_width + 0.0;
+  $page_height = $page_height + 0.0;
+  
+  (($page_width > 0) and ($page_height > 0)) or
+    die "Invalid page size, stopped";
+  
+  # First comes the PostScript signature line
+  print {$arg_fh} "%!PS\n\n";
+  
+  # Print a comment giving the page dimensions in points
+  if ($page_width < 0.5) {
+    $page_width = 0.5;
+  }
+  if ($page_height < 0.5) {
+    $page_height = 0.5;
+  }
+  
+  $page_width = sprintf("%.1f", $page_width);
+  $page_height = sprintf("%.1f", $page_height);
+  
+  print {$arg_fh} "% Page width : $page_width\n";
+  print {$arg_fh} "% Page height: $page_height\n";
+  
+  # Next we need to get the named font
+  print {$arg_fh} "/$font_name findfont\n";
+  
+  # Convert font size to string with one decimal places
+  $font_size = sprintf("%.1f", $font_size);
+  
+  # Scale the font
+  print {$arg_fh} "$font_size scalefont\n";
+  
+  # Set the font
+  print {$arg_fh} "setfont\n\n";
+  
+  # Save graphics state before determining font height
+  print {$arg_fh} "gsave\n";
+  
+  # Move to (0, 0) and determine bounding box of letters in the current
+  # font
+  my $motto = "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG";
+  my $motto = $motto . " the quick brown fox jumps over the lazy dog";
+  
+  print {$arg_fh} "newpath\n";
+  print {$arg_fh} "0 0 moveto\n";
+  print {$arg_fh} "($motto)\n";
+  print {$arg_fh} "  true charpath flattenpath pathbbox\n";
+
+  # [lower_x] [lower_y] [upper_x] [upper_y] -> [lower_y] [upper_y]
+  print {$arg_fh} "exch pop 3 -1 roll pop\n";
+  
+  # [lower_y] [upper_y] -> [lower_y] [upper_y] [upper_y] [lower_y]
+  print {$arg_fh} "dup 2 index\n";
+  
+  # [lower_y] [upper_y] [upper_y] [lower_y] -> [lower_y] [upper_y] [h]
+  # where [h] is the full height of the bounding box
+  print {$arg_fh} "neg add\n";
+  
+  # [lower_y] [upper_y] [h] -> [upper_y] [h]
+  print {$arg_fh} "3 -1 roll pop\n";
+  
+  # Define fontHeight as the height of the font, fontBase as the
+  # vertical distance between top of bounding box to baseline, and clear
+  # the PostScript stack
+  print {$arg_fh} "/fontHeight exch def\n";
+  print {$arg_fh} "/fontBase exch def\n";
+  
+  # Restore graphics state after determining font height
+  print {$arg_fh} "grestore\n\n";
+}
+
+# Write the PostScript code for a complete photo cell.
+#
+# Parameters:
+#
+#   1: [file handle ref] - the output file to write
+#   2: [hash reference ] - the parameters dictionary
+#   3: [float ] - X page coordinate of BOTTOM-left corner of cell
+#   4: [float ] - Y page coordinate of BOTTOM-left corner of cell
+#   5: [float ] - width of cell
+#   6: [float ] - height of cell
+#   7: [string] - path to photo file to use for this cell
+#
+sub ps_cell {
+  
+  # Must be exactly seven parameters
+  ($#_ == 6) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_fh   = shift;
+  my $arg_p    = shift;
+  my $arg_x    = shift;
+  my $arg_y    = shift;
+  my $arg_w    = shift;
+  my $arg_h    = shift;
+  my $arg_path = shift;
+  
+  # Check types
+  (ref($arg_p) eq 'HASH') or
+    die "Wrong parameter type, stopped";
+  
+  $arg_x = $arg_x + 0.0;
+  $arg_y = $arg_y + 0.0;
+  $arg_w = $arg_w + 0.0;
+  $arg_h = $arg_h + 0.0;
+  
+  $arg_path = "$arg_path";
+  
+  # Width and height must be greater than zero
+  (($arg_w > 0) and ($arg_h > 0)) or
+    die "Cell dimensions empty, stopped";
+  
+  # @@TODO:
+  print {$arg_fh} "gsave\n";
+  print {$arg_fh} "$arg_x $arg_y moveto\n";
+  print {$arg_fh} "$arg_w 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h rlineto\n";
+  print {$arg_fh} "$arg_w neg 0 rlineto\n";
+  print {$arg_fh} "0 $arg_h neg rlineto\n";
+  print {$arg_fh} "stroke\n";
+  print {$arg_fh} "grestore\n";
+}
+
 # ==================
 # Program entrypoint
 # ==================
@@ -223,6 +397,11 @@ while (<$fh_list>) {
 }
 
 close($fh_list);
+
+# Make sure at least one file defined in list
+#
+($#file_list >= 0) or
+  die "Input file list may not be empty, stopped";
 
 # Now we will construct the properties dictionary
 #
@@ -875,7 +1054,65 @@ if ($table_height < $prop_dict{'page_height'}
                                 + ($extra_h / 2);
 }
 
-# @@TODO:
+# Time to open the output file
+#
+open(my $fh_out, ">", $arg_ps_path) or
+  die "Can't open output file '$arg_ps_path', stopped";
+
+# Write the PostScript header
+#
+ps_header($fh_out, \%prop_dict);
+
+# Get the total number of photos we need to add to this album and set
+# the photo index to start at zero
+#
+my $photo_count = $#file_list + 1;
+my $photo_i = 0;
+
+# Keep generating pages while there are photos left
+#
+while ($photo_count > 0) {
+
+
+  # Photos go from top to bottom on outer loop, Y coordinates second
+  for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
+    
+    # Photos go from left to right on inner loop, X coordinates first
+    for(my $x = 0; $x < $prop_dict{'tile_cols'}; $x++) {
+      
+      # Only do something in this location if at least one photo remains
+      if ($photo_count > 0) {
+      
+        # The X coordinate on the page of the left side of this photo
+        # cell is the X offset of the cell multiplied by the cell width,
+        # added to the left margin
+        my $cell_x = ($x * $cell_width) + $prop_dict{'margin_left'};
+      
+        # The Y coordinate on the page of the BOTTOM side of this photo
+        # cell is the inverse Y offset of the cell multiplied by the
+        # cell height, added to the bottom margin
+        my $cell_y = (($prop_dict{'tile_rows'} - $y - 1) * $cell_height)
+                        + $prop_dict{'margin_bottom'};
+        
+        # Draw the cell
+        ps_cell($fh_out, \%prop_dict,
+                $cell_x, $cell_y, $cell_width, $cell_height,
+                $file_list[$photo_i]);
+        
+        # Reduce photo count and increase photo index
+        $photo_count--;
+        $photo_i++;
+      }
+    }
+  }
+
+  # Display this page
+  print { $fh_out } "showpage\n";
+}
+
+# Close the output file
+#
+close($fh_out);
 
 =head1 AUTHOR
 
