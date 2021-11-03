@@ -181,9 +181,61 @@ image dimensions.
 
 =cut
 
+# ==========
+# Local data
+# ==========
+
+# The time of the last status update, or the time when the program
+# started if there have been no status updates yet.
+#
+my $last_update = time();
+
 # ===============
 # Local functions
 # ===============
+
+# Write a status update to stderr if at least five seconds have passed
+# since the last update or the start of the program.
+#
+# Parameters:
+#
+#   1: [integer] - number of photos that have been processed
+#   2: [integer] - total number of photos
+#
+sub status_update {
+  
+  # Must be exactly two parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_done  = shift;
+  my $arg_total = shift;
+  
+  # Convert types
+  $arg_done  = int($arg_done);
+  $arg_total = int($arg_total);
+  
+  # Only proceed if valid status state
+  if (($arg_done >= 0) and ($arg_total > 0) and
+        ($arg_done < $arg_total)) {
+    
+    # Get current time
+    my $newtime = time();
+    
+    # Only proceed if time wraparound or if five seconds have passed
+    if (($newtime < $last_update) or ($newtime - 5 >= $last_update)) {
+    
+      # Update the update time
+      $last_update = $newtime;
+      
+      # Determine percent complete, to one decimal place
+      my $pct = sprintf("%.1f", (($arg_done / $arg_total) * 100));
+      
+      # Write status report
+      print STDERR "$0: $arg_done / $arg_total ($pct%)\n";
+    }
+  }
+}
 
 # Convert a measurement with a unit into a PostScript point unit.
 #
@@ -1498,6 +1550,9 @@ while ($photo_count > 0) {
         # Reduce photo count and increase photo index
         $photo_count--;
         $photo_i++;
+        
+        # Status update if necessary
+        status_update($photo_i, $#file_list + 1);
       }
     }
   }
