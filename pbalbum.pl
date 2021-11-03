@@ -7,11 +7,11 @@ use File::Spec;
 
 =head1 NAME
 
-pbsalbum.pl - Compile a PostScript photo album.
+pbalbum.pl - Compile a PostScript photo album.
 
 =head1 SYNOPSIS
 
-  pbsalbum.pl album.ps filelist.txt config.ini layout.ini
+  pbalbum.pl album.ps filelist.txt config.ini layout.ini
 
 =head1 DESCRIPTION
 
