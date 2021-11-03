@@ -142,6 +142,19 @@ target pixel count.
 
 =cut
 
+# =====================
+# Constant declarations
+# =====================
+
+# The minimum width or height dimension in a scaled target image.
+#
+my $MIN_TARGET_DIM = 8;
+
+# The number of bytes to buffer while transferring data from the image
+# scaling transformation pipeline into the PostScript output.
+#
+my $BUFFER_SIZE = 4096;
+
 # ===============
 # Local functions
 # ===============
@@ -356,15 +369,92 @@ sub ps_pic {
   (($arg_w > 0) and ($arg_h > 0)) or
     die "Picture dimensions empty, stopped";
   
-  # @@TODO:
+  # We need the scale_pix property, as well as the apps_gm and
+  # apps_bin2base85 properties
+  ((exists $arg_p->{'scale_pix'}) and
+      (exists $arg_p->{'apps_gm'}) and
+      (exists $arg_p->{'apps_bin2base85'})) or
+    die "Missing property, stopped";
+  
+  my $scale_pix = int($arg_p->{'scale_pix'});
+  my $app_gm = "$arg_p->{'apps_gm'}";
+  my $app_bin2base85 = "$arg_p->{'apps_bin2base85'}";
+  
+  ($scale_pix > 0) or
+    die "Invalid target pixel count, stopped";
+  
+  # Compute scaled width and height:
+  #
+  #   (arg_w * z) * (arg_h * z) = scale_pix
+  #                           z = sqrt(scale_pix / (arg_w * arg_h))
+  # 
+  # Therefore:
+  #
+  #   arg_w * z = target_w
+  #   arg_h * z = target_h
+  
+  my $z = sqrt($scale_pix / ($arg_w * $arg_h));
+  
+  my $target_w = int($arg_w * $z);
+  my $target_h = int($arg_h * $z);
+  
+  if ($target_w < $MIN_TARGET_DIM) {
+    $target_w = $MIN_TARGET_DIM;
+  }
+  if ($target_h < $MIN_TARGET_DIM) {
+    $target_h = $MIN_TARGET_DIM;
+  }
+  
+  # Convert page area floats to strings
+  $arg_x = sprintf("%.1f", $arg_x);
+  $arg_y = sprintf("%.1f", $arg_y);
+  $arg_w = sprintf("%.1f", $arg_w);
+  $arg_h = sprintf("%.1f", $arg_h);
+  
+  # Save graphics state at start of operation
   print {$arg_fh} "gsave\n";
-  print {$arg_fh} "$arg_x $arg_y moveto\n";
-  print {$arg_fh} "$arg_w 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h rlineto\n";
-  print {$arg_fh} "$arg_w neg 0 rlineto\n";
-  print {$arg_fh} "0 $arg_h neg rlineto\n";
-  print {$arg_fh} "stroke\n";
-  print {$arg_fh} "grestore\n";
+  
+  # Set up target location on page
+  print {$arg_fh} "$arg_x $arg_y translate\n";
+  print {$arg_fh} "$arg_w $arg_h scale\n\n";
+  
+  # Draw JPEG RGB color image to page, reading Base-85 encoded binary
+  # data from the PostScript file immediately after this command
+  print {$arg_fh} "$target_w $target_h 8\n";
+  print {$arg_fh} "[$target_w 0 0 -$target_h 0 $target_h]\n";
+  print {$arg_fh} "currentfile\n";
+  print {$arg_fh} "/ASCII85Decode filter\n";
+  print {$arg_fh} "/DCTDecode filter\n";
+  print {$arg_fh} "false 3 colorimage\n\n";
+  
+  # Read from a pipeline that first scales the given image to the target
+  # dimensions and sets the colorspace to RGB, and then transforms the
+  # scaled JPEG image into Base-85
+  my $cmd = "$app_gm convert -size ${target_w}x${target_h} $arg_path "
+            . "-colorspace RGB -resize ${target_w}x${target_h} "
+            . "+profile \"*\" - | $app_bin2base85";
+  open(my $op_fh, '-|', $cmd) or
+    die "Couldn't run command '$cmd', stopped";
+  
+  # Transfer all data
+  my $buf;
+  my $retval;
+  for($retval = read($op_fh, $buf, $BUFFER_SIZE);
+        ($retval > 0);
+        $retval = read($op_fh, $buf, $BUFFER_SIZE)) {
+    print {$arg_fh} $buf;
+  }
+  (defined $retval) or
+    die "Data transfer failed, stopped";
+  
+  # Write the closing base-85 marker
+  print {$arg_fh} "~>\n\n";
+  
+  # Close the operation handle
+  close($op_fh);
+  
+  # Restore graphics state at end of operation
+  print {$arg_fh} "grestore\n\n";
 }
 
 # Write the PostScript code for the caption of a photo cell.
@@ -1299,7 +1389,8 @@ if ($table_height < $prop_dict{'page_height'}
 
 # Replace the scaling information with a pixel count scale_pix
 #
-$prop_dict{'scale_pix'} = $prop_dict{'swidth'} * $prop_dict{'sheight'};
+$prop_dict{'scale_pix'} = $prop_dict{'scale_swidth'}
+                            * $prop_dict{'scale_sheight'};
 
 delete $prop_dict{'swidth'};
 delete $prop_dict{'sheight'};
