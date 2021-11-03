@@ -435,9 +435,10 @@ sub ps_pic {
   # Read from a pipeline that first scales the given image to the target
   # dimensions and sets the colorspace to RGB, and then transforms the
   # scaled JPEG image into Base-85
-  my $cmd = "$app_gm convert -size ${target_w}x${target_h} $arg_path "
+  my $cmd = "$app_gm convert -size ${target_w}x${target_h} "
+            . "\"$arg_path\" "
             . "-colorspace RGB -resize ${target_w}x${target_h} "
-            . "+profile \"*\" - | $app_bin2base85";
+            . "+profile \"*\" jpeg:- | $app_bin2base85";
   open(my $op_fh, '-|', $cmd) or
     die "Couldn't run command '$cmd', stopped";
   
