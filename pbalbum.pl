@@ -763,20 +763,20 @@ unless ($config) {
   die "Failed to load '$arg_config_path':\n$es\nStopped";
 }
 
-($config->{apps}) or
+(exists $config->{apps}) or
   die "$arg_config_path is missing [apps] section, stopped";
 
-($config->{apps}->{gm}) or
+(exists $config->{apps}->{gm}) or
   die "$arg_config_path is missing gm key in [apps], stopped";
-($config->{apps}->{bin2base85}) or
+(exists $config->{apps}->{bin2base85}) or
   die "$arg_config_path is missing bin2base85 key in [apps], stopped";
 
-($config->{const}) or
+(exists $config->{const}) or
   die "$arg_config_path is missing [const] section, stopped";
 
-($config->{const}->{mindim}) or
+(exists $config->{const}->{mindim}) or
   die "$arg_config_path is missing mindim key in [const], stopped";
-($config->{const}->{buffer}) or
+(exists $config->{const}->{buffer}) or
   die "$arg_config_path is missing buffer key in [const], stopped";
 
 $prop_dict{'apps_gm'} = $config->{apps}->{gm};
@@ -797,76 +797,76 @@ unless ($layout) {
   die "Failed to load '$arg_layout_path':\n$es\nStopped";
 }
 
-($layout->{page}) or
+(exists $layout->{page}) or
   die "$arg_layout_path is missing [page] section, stopped";
 
-($layout->{page}->{unit}) or
+(exists $layout->{page}->{unit}) or
   die "$arg_layout_path is missing unit key in [page], stopped";
-($layout->{page}->{width}) or
+(exists $layout->{page}->{width}) or
   die "$arg_layout_path is missing width key in [page], stopped";
-($layout->{page}->{height}) or
+(exists $layout->{page}->{height}) or
   die "$arg_layout_path is missing height key in [page], stopped";
 
-($layout->{margin}) or
+(exists $layout->{margin}) or
   die "$arg_layout_path is missing [margin] section, stopped";
 
-($layout->{margin}->{unit}) or
+(exists $layout->{margin}->{unit}) or
   die "$arg_layout_path is missing unit key in [margin], stopped";
-($layout->{margin}->{left}) or
+(exists $layout->{margin}->{left}) or
   die "$arg_layout_path is missing left key in [margin], stopped";
-($layout->{margin}->{right}) or
+(exists $layout->{margin}->{right}) or
   die "$arg_layout_path is missing right key in [margin], stopped";
-($layout->{margin}->{bottom}) or
+(exists $layout->{margin}->{bottom}) or
   die "$arg_layout_path is missing bottom key in [margin], stopped";
 
-($layout->{cell}) or
+(exists $layout->{cell}) or
   die "$arg_layout_path is missing [cell] section, stopped";
 
-($layout->{cell}->{unit}) or
+(exists $layout->{cell}->{unit}) or
   die "$arg_layout_path is missing unit key in [cell], stopped";
-($layout->{cell}->{vgap}) or
+(exists $layout->{cell}->{vgap}) or
   die "$arg_layout_path is missing vgap key in [cell], stopped";
-($layout->{cell}->{hgap}) or
+(exists $layout->{cell}->{hgap}) or
   die "$arg_layout_path is missing hgap key in [cell], stopped";
-($layout->{cell}->{igap}) or
+(exists $layout->{cell}->{igap}) or
   die "$arg_layout_path is missing igap key in [cell], stopped";
-($layout->{cell}->{caption}) or
+(exists $layout->{cell}->{caption}) or
   die "$arg_layout_path is missing caption key in [cell], stopped";
 
-($layout->{font}) or
+(exists $layout->{font}) or
   die "$arg_layout_path is missing [font] section, stopped";
 
-($layout->{font}->{name}) or
+(exists $layout->{font}->{name}) or
   die "$arg_layout_path is missing name key in [font], stopped";
-($layout->{font}->{size}) or
+(exists $layout->{font}->{size}) or
   die "$arg_layout_path is missing size key in [font], stopped";
-($layout->{font}->{maxlen}) or
+(exists $layout->{font}->{maxlen}) or
   die "$arg_layout_path is missing maxlen key in [font], stopped";  
-($layout->{font}->{ext}) or
+(exists $layout->{font}->{ext}) or
   die "$arg_layout_path is missing ext key in [font], stopped";
 
-($layout->{aspect}) or
+(exists $layout->{aspect}) or
   die "$arg_layout_path is missing [aspect] section, stopped";
 
-($layout->{aspect}->{awidth}) or
+(exists $layout->{aspect}->{awidth}) or
   die "$arg_layout_path is missing awidth key in [aspect], stopped";
-($layout->{aspect}->{aheight}) or
+(exists $layout->{aspect}->{aheight}) or
   die "$arg_layout_path is missing aheight key in [aspect], stopped";
 
-($layout->{tile}) or
+(exists $layout->{tile}) or
   die "$arg_layout_path is missing [tile] section, stopped";
 
-($layout->{tile}->{dim}) or
+(exists $layout->{tile}->{dim}) or
   die "$arg_layout_path is missing dim key in [tile], stopped";
-($layout->{tile}->{count}) or
+(exists $layout->{tile}->{count}) or
   die "$arg_layout_path is missing count key in [tile], stopped";
 
-($layout->{scale}) or
+(exists $layout->{scale}) or
   die "$arg_layout_path is missing [scale] section, stopped";
 
-($layout->{scale}->{swidth}) or
+(exists $layout->{scale}->{swidth}) or
   die "$arg_layout_path is missing swidth key in [scale], stopped";
-($layout->{scale}->{sheight}) or
+(exists $layout->{scale}->{sheight}) or
   die "$arg_layout_path is missing sheight key in [scale], stopped";
 
 $prop_dict{'page_unit'} = $layout->{page}->{unit};
@@ -944,7 +944,8 @@ my %prop_type = (
 for my $pkey (keys %prop_type) {
 
   # Check that property exists in property dictionary
-  ($prop_dict{$pkey}) or die "Missing property key '$pkey', stopped";
+  (exists $prop_dict{$pkey}) or
+    die "Missing property key '$pkey', stopped";
   
   # Get the value of the property as a string, check that exclusively
   # ASCII, and trim leading and trailing whitespace
