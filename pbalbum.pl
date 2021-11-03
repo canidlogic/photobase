@@ -1,8 +1,11 @@
 #!/usr/bin/env perl
 use strict;
 
+# Non-core dependencies
 use Config::Tiny;
 use Convert::Ascii85;
+
+# Core dependencies
 use File::Spec;
 
 =head1 NAME
@@ -30,18 +33,30 @@ photo file that will be included in the album, with one path per line.
 The order of files in the file list determines the order of pictures in
 the generated photo album.
 
-The third parameter is a text file in *.ini format that can be parsed
-by C<Config::Tiny>.  It contains system-specific configuration options.
-It has the following format:
+The third parameter is the path to a configuration file that has values
+specific to the current platform.  The fourth parameter is the path to a
+configuration file that determines the layout of the generated album.
+The format of these configuration files are detailed below.
+
+=head2 System configuration file
+
+The third parameter to the script is a text file in *.ini format that
+can be parsed by C<Config::Tiny>.  It contains system-specific
+configuration options.  It has the following format:
 
   [apps]
   gm=/path/to/gm
   bin2base85=/path/to/bin2base85
+  
+  [const]
+  mindim=8
+  buffer=4096
 
 You must give the command for running GraphicsMagick, and a command to
 run a program that converts a binary stream on standard input to an
 ASCII Base-85 stream on standard output.  If these are both installed in
-the system C<PATH>, then you can use the following:
+the system C<PATH>, then you can use the following for the C<[apps]>
+section:
 
   [apps]
   gm=gm
@@ -51,9 +66,21 @@ The C<bin2base85> command option allows you to add custom parameters
 after the program name if necessary.  For C<gm>, this script will handle
 adding all the proper parameters.
 
-The fourth parameter is also a text file in *.ini format that can be
-parsed by C<Config::Tiny>.  It specifies the format of the generated
-album.  It has the following format:
+The C<[const]> section contains various constants affecting the
+operation of the script.  The C<mindim> constant is the minimum pixel
+dimensions for both the width and the height in the scaled JPEG image
+that will be embedded.  If either width or height (or both) are computed
+by the normal method to be under this constant value, they are set to
+this constant value.  The C<buffer> constant is the number of bytes to
+use for the buffer to transfer Base-85 encoded JPEG images into the
+generated PostScript.  Both of these constants must be integers that are
+greater than zero.
+
+=head2 Layout configuration file
+
+The fourth parameter to the script is also a text file in *.ini format
+that can be parsed by C<Config::Tiny>.  It specifies the format of the
+generated album.  It has the following format:
 
   [page]
   unit=mm
@@ -144,6 +171,13 @@ Finally, the scaling section determines how many pixels should be in the
 scaled image that is embedded.  The C<swidth> and C<sheight> parameters
 do not matter by themselves, but when multiplied together they give the
 target pixel count.
+
+The actual dimensions of the scaled images are first computed by
+determining dimensions that closely match the desired pixel count and
+the aspect ratio of the image.  These dimensions are then adjusted if
+necessary by the C<mindim> constant defined in the system configuration
+file, though this adjustment should only occur for very tiny target
+image dimensions.
 
 =cut
 
