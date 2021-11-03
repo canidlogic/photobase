@@ -181,19 +181,6 @@ image dimensions.
 
 =cut
 
-# =====================
-# Constant declarations
-# =====================
-
-# The minimum width or height dimension in a scaled target image.
-#
-my $MIN_TARGET_DIM = 8;
-
-# The number of bytes to buffer while transferring data from the image
-# scaling transformation pipeline into the PostScript output.
-#
-my $BUFFER_SIZE = 4096;
-
 # ===============
 # Local functions
 # ===============
@@ -409,18 +396,24 @@ sub ps_pic {
     die "Picture dimensions empty, stopped";
   
   # We need the scale_pix property, as well as the apps_gm and
-  # apps_bin2base85 properties
+  # apps_bin2base85, and const_mindim and const_buffer properties
   ((exists $arg_p->{'scale_pix'}) and
       (exists $arg_p->{'apps_gm'}) and
-      (exists $arg_p->{'apps_bin2base85'})) or
+      (exists $arg_p->{'apps_bin2base85'}) and
+      (exists $arg_p->{'const_mindim'}) and
+      (exists $arg_p->{'const_buffer'})) or
     die "Missing property, stopped";
   
   my $scale_pix = int($arg_p->{'scale_pix'});
   my $app_gm = "$arg_p->{'apps_gm'}";
   my $app_bin2base85 = "$arg_p->{'apps_bin2base85'}";
+  my $const_mindim = int($arg_p->{'const_mindim'});
+  my $const_buffer = int($arg_p->{'const_buffer'});
   
   ($scale_pix > 0) or
     die "Invalid target pixel count, stopped";
+  (($const_mindim > 0) and ($const_buffer > 0)) or
+    die "Invalid constant values, stopped";
   
   # Compute scaled width and height:
   #
@@ -437,11 +430,11 @@ sub ps_pic {
   my $target_w = int($arg_w * $z);
   my $target_h = int($arg_h * $z);
   
-  if ($target_w < $MIN_TARGET_DIM) {
-    $target_w = $MIN_TARGET_DIM;
+  if ($target_w < $const_mindim) {
+    $target_w = $const_mindim;
   }
-  if ($target_h < $MIN_TARGET_DIM) {
-    $target_h = $MIN_TARGET_DIM;
+  if ($target_h < $const_mindim) {
+    $target_h = $const_mindim;
   }
   
   # Convert page area floats to strings
@@ -479,9 +472,9 @@ sub ps_pic {
   # Transfer all data
   my $buf;
   my $retval;
-  for($retval = read($op_fh, $buf, $BUFFER_SIZE);
+  for($retval = read($op_fh, $buf, $const_buffer);
         ($retval > 0);
-        $retval = read($op_fh, $buf, $BUFFER_SIZE)) {
+        $retval = read($op_fh, $buf, $const_buffer)) {
     print {$arg_fh} $buf;
   }
   (defined $retval) or
@@ -778,8 +771,19 @@ unless ($config) {
 ($config->{apps}->{bin2base85}) or
   die "$arg_config_path is missing bin2base85 key in [apps], stopped";
 
+($config->{const}) or
+  die "$arg_config_path is missing [const] section, stopped";
+
+($config->{const}->{mindim}) or
+  die "$arg_config_path is missing mindim key in [const], stopped";
+($config->{const}->{buffer}) or
+  die "$arg_config_path is missing buffer key in [const], stopped";
+
 $prop_dict{'apps_gm'} = $config->{apps}->{gm};
 $prop_dict{'apps_bin2base85'} = $config->{apps}->{bin2base85};
+
+$prop_dict{'const_mindim'} = $config->{const}->{mindim};
+$prop_dict{'const_buffer'} = $config->{const}->{buffer};
 
 undef $config;
 
@@ -902,6 +906,9 @@ undef $layout;
 my %prop_type = (
   apps_gm         => 'string',
   apps_bin2base85 => 'string',
+  
+  const_mindim => 'int',
+  const_buffer => 'int',
   
   page_unit   => 'unit',
   page_width  => 'float',
@@ -1065,6 +1072,13 @@ for my $pkey (keys %prop_type) {
     die "Unknown internal type name, stopped";
   }
 }
+
+# Check constant values
+#
+($prop_dict{'const_mindim'} > 0) or
+  die "mindim constant must be greater than zero, stopped";
+($prop_dict{'const_buffer'} > 0) or
+  die "buffer constant must be greater than zero, stopped";
 
 # PostScript has all measurements in points, so convert all measurements
 #
