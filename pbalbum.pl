@@ -38,13 +38,18 @@ It has the following format:
   gm=/path/to/gm
   bin2base85=/path/to/bin2base85
 
-You must give the paths to the GraphicsMagick binary and the bin2base85
-binary.  If these are both installed in the system C<PATH>, then you can
-use the following:
+You must give the command for running GraphicsMagick, and a command to
+run a program that converts a binary stream on standard input to an
+ASCII Base-85 stream on standard output.  If these are both installed in
+the system C<PATH>, then you can use the following:
 
   [apps]
   gm=gm
   bin2base85=bin2base85
+
+The C<bin2base85> command option allows you to add custom parameters
+after the program name if necessary.  For C<gm>, this script will handle
+adding all the proper parameters.
 
 The fourth parameter is also a text file in *.ini format that can be
 parsed by C<Config::Tiny>.  It specifies the format of the generated
