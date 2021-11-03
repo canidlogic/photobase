@@ -51,6 +51,7 @@ configuration options.  It has the following format:
   [const]
   mindim=8
   buffer=4096
+  status=5
 
 You must give the command for running GraphicsMagick, and a command to
 run a program that converts a binary stream on standard input to an
@@ -73,8 +74,9 @@ that will be embedded.  If either width or height (or both) are computed
 by the normal method to be under this constant value, they are set to
 this constant value.  The C<buffer> constant is the number of bytes to
 use for the buffer to transfer Base-85 encoded JPEG images into the
-generated PostScript.  Both of these constants must be integers that are
-greater than zero.
+generated PostScript.  The C<status> constant is the number of seconds
+between status updates on long operations.  All of these constants must
+be integers that are greater than zero.
 
 =head2 Layout configuration file
 
@@ -194,36 +196,40 @@ my $last_update = time();
 # Local functions
 # ===============
 
-# Write a status update to stderr if at least five seconds have passed
-# since the last update or the start of the program.
+# Write a status update to stderr if at least a given number of seconds
+# have passed since the last update or the start of the program.
 #
 # Parameters:
 #
 #   1: [integer] - number of photos that have been processed
 #   2: [integer] - total number of photos
+#   3: [integer] - number of seconds between updates
 #
 sub status_update {
   
-  # Must be exactly two parameters
-  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  # Must be exactly three parameters
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
   
   # Grab the parameters
-  my $arg_done  = shift;
-  my $arg_total = shift;
+  my $arg_done   = shift;
+  my $arg_total  = shift;
+  my $arg_status = shift;
   
   # Convert types
-  $arg_done  = int($arg_done);
-  $arg_total = int($arg_total);
+  $arg_done   = int($arg_done);
+  $arg_total  = int($arg_total);
+  $arg_status = int($arg_status);
   
   # Only proceed if valid status state
   if (($arg_done >= 0) and ($arg_total > 0) and
-        ($arg_done < $arg_total)) {
+        ($arg_done < $arg_total) and ($arg_status > 0)) {
     
     # Get current time
     my $newtime = time();
     
-    # Only proceed if time wraparound or if five seconds have passed
-    if (($newtime < $last_update) or ($newtime - 5 >= $last_update)) {
+    # Only proceed if time wraparound or if enough seconds have passed
+    if (($newtime < $last_update) or
+          ($newtime - $arg_status >= $last_update)) {
     
       # Update the update time
       $last_update = $newtime;
@@ -830,12 +836,15 @@ unless ($config) {
   die "$arg_config_path is missing mindim key in [const], stopped";
 (exists $config->{const}->{buffer}) or
   die "$arg_config_path is missing buffer key in [const], stopped";
+(exists $config->{const}->{status}) or
+  die "$arg_config_path is missing status key in [const], stopped";
 
 $prop_dict{'apps_gm'} = $config->{apps}->{gm};
 $prop_dict{'apps_bin2base85'} = $config->{apps}->{bin2base85};
 
 $prop_dict{'const_mindim'} = $config->{const}->{mindim};
 $prop_dict{'const_buffer'} = $config->{const}->{buffer};
+$prop_dict{'const_status'} = $config->{const}->{status};
 
 undef $config;
 
@@ -961,6 +970,7 @@ my %prop_type = (
   
   const_mindim => 'int',
   const_buffer => 'int',
+  const_status => 'int',
   
   page_unit   => 'unit',
   page_width  => 'float',
@@ -1132,6 +1142,8 @@ for my $pkey (keys %prop_type) {
   die "mindim constant must be greater than zero, stopped";
 ($prop_dict{'const_buffer'} > 0) or
   die "buffer constant must be greater than zero, stopped";
+($prop_dict{'const_status'} > 0) or
+  die "status constant must be greater than zero, stopped";
 
 # PostScript has all measurements in points, so convert all measurements
 #
@@ -1552,7 +1564,8 @@ while ($photo_count > 0) {
         $photo_i++;
         
         # Status update if necessary
-        status_update($photo_i, $#file_list + 1);
+        status_update(
+          $photo_i, $#file_list + 1, $prop_dict{'const_status'});
       }
     }
   }
