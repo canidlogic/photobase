@@ -120,6 +120,10 @@ generated PostScript file, the margins within the page, the spacing
 within each picture cell, the font used for labels, the aspect ratio of
 each picture, and how many pictures to tile.
 
+You B<must> have the page and the pictures in landscape aspect (with the
+width greater than or equal to the height).  Portrait aspect will use a
+rotation of the landscape aspect.
+
 The C<[unit]> property when it appears in a section sets the measurement
 unit used for all measurements within the section.  The valid unit
 values are C<mm> C<inch> and C<point> (which is 1/72 of an inch).
@@ -1264,6 +1268,12 @@ if ($prop_dict{'cell_igap'} < 0) {
 (($prop_dict{'scale_swidth'} > 0) and
     ($prop_dict{'scale_sheight'} > 0)) or
   die "Scaling dimensions must be greater than zero, stopped";
+
+# Make sure layout is for landscape (or perfectly square) aspect
+#
+(($prop_dict{'page_width'} >= $prop_dict{'page_height'}) and
+    ($prop_dict{'aspect_awidth'} >= $prop_dict{'aspect_aheight'})) or
+  die "Layout must be in landscape aspect, stopped";
 
 # We now need to figure out the actual dimensions of each photo cell on
 # the page; this is different depending on the tiling dimension
