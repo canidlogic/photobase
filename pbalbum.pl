@@ -46,26 +46,20 @@ configuration options.  It has the following format:
 
   [apps]
   gm=/path/to/gm
-  bin2base85=/path/to/bin2base85
+  psdata=/path/to/psdata
   
   [const]
   mindim=8
   buffer=4096
   status=5
 
-You must give the command for running GraphicsMagick, and a command to
-run a program that converts a binary stream on standard input to an
-ASCII Base-85 stream on standard output.  If these are both installed in
-the system C<PATH>, then you can use the following for the C<[apps]>
-section:
+You must give the command for running GraphicsMagick, and a command for
+running the psdata program.  If these are both installed in the system
+C<PATH>, then you can use the following for the C<[apps]> section:
 
   [apps]
   gm=gm
-  bin2base85=bin2base85
-
-The C<bin2base85> command option allows you to add custom parameters
-after the program name if necessary.  For C<gm>, this script will handle
-adding all the proper parameters.
+  psdata=psdata
 
 The C<[const]> section contains various constants affecting the
 operation of the script.  The C<mindim> constant is the minimum pixel
@@ -454,17 +448,17 @@ sub ps_pic {
     die "Picture dimensions empty, stopped";
   
   # We need the scale_pix property, as well as the apps_gm and
-  # apps_bin2base85, and const_mindim and const_buffer properties
+  # apps_psdata, and const_mindim and const_buffer properties
   ((exists $arg_p->{'scale_pix'}) and
       (exists $arg_p->{'apps_gm'}) and
-      (exists $arg_p->{'apps_bin2base85'}) and
+      (exists $arg_p->{'apps_psdata'}) and
       (exists $arg_p->{'const_mindim'}) and
       (exists $arg_p->{'const_buffer'})) or
     die "Missing property, stopped";
   
   my $scale_pix = int($arg_p->{'scale_pix'});
   my $app_gm = "$arg_p->{'apps_gm'}";
-  my $app_bin2base85 = "$arg_p->{'apps_bin2base85'}";
+  my $app_psdata = "$arg_p->{'apps_psdata'}";
   my $const_mindim = int($arg_p->{'const_mindim'});
   my $const_buffer = int($arg_p->{'const_buffer'});
   
@@ -509,22 +503,25 @@ sub ps_pic {
   print {$arg_fh} "$arg_w $arg_h scale\n\n";
   
   # Draw JPEG RGB color image to page, reading Base-85 encoded binary
-  # data from the PostScript file immediately after this command
+  # data from the PostScript file immediately after this command, but
+  # leave out the final "colorimage" command, which will be packaged
+  # with the embedded data
   print {$arg_fh} "$target_w $target_h 8\n";
   print {$arg_fh} "[$target_w 0 0 -$target_h 0 $target_h]\n";
   print {$arg_fh} "currentfile\n";
   print {$arg_fh} "/ASCII85Decode filter\n";
   print {$arg_fh} "/DCTDecode filter\n";
-  print {$arg_fh} "false 3 colorimage\n\n";
+  print {$arg_fh} "false 3\n\n";
   
   # Read from a pipeline that first scales the given image to the target
   # dimensions and sets the colorspace to RGB, and then transforms the
-  # scaled JPEG image into Base-85
+  # scaled JPEG image into Base-85 and packages for PostScript with a
+  # "colorimage" header command
   my $cmd = "$app_gm convert "
             . "-auto-orient -size ${target_w}x${target_h} "
             . "\"$arg_path\" "
             . "-colorspace RGB -resize ${target_w}x${target_h}! "
-            . "+profile \"*\" jpeg:- | $app_bin2base85";
+            . "+profile \"*\" jpeg:- | $app_psdata -head colorimage";
   open(my $op_fh, '-|', $cmd) or
     die "Couldn't run command '$cmd', stopped";
   
@@ -538,9 +535,6 @@ sub ps_pic {
   }
   (defined $retval) or
     die "Data transfer failed, stopped";
-  
-  # Write the closing base-85 marker
-  print {$arg_fh} "~>\n\n";
   
   # Close the operation handle
   close($op_fh);
@@ -827,8 +821,8 @@ unless ($config) {
 
 (exists $config->{apps}->{gm}) or
   die "$arg_config_path is missing gm key in [apps], stopped";
-(exists $config->{apps}->{bin2base85}) or
-  die "$arg_config_path is missing bin2base85 key in [apps], stopped";
+(exists $config->{apps}->{psdata}) or
+  die "$arg_config_path is missing psdata key in [apps], stopped";
 
 (exists $config->{const}) or
   die "$arg_config_path is missing [const] section, stopped";
@@ -841,7 +835,7 @@ unless ($config) {
   die "$arg_config_path is missing status key in [const], stopped";
 
 $prop_dict{'apps_gm'} = $config->{apps}->{gm};
-$prop_dict{'apps_bin2base85'} = $config->{apps}->{bin2base85};
+$prop_dict{'apps_psdata'} = $config->{apps}->{psdata};
 
 $prop_dict{'const_mindim'} = $config->{const}->{mindim};
 $prop_dict{'const_buffer'} = $config->{const}->{buffer};
@@ -966,8 +960,8 @@ undef $layout;
 # Define the type of each property and type-convert all properties
 #
 my %prop_type = (
-  apps_gm         => 'string',
-  apps_bin2base85 => 'string',
+  apps_gm     => 'string',
+  apps_psdata => 'string',
   
   const_mindim => 'int',
   const_buffer => 'int',
