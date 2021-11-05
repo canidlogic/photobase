@@ -8,6 +8,7 @@ use Image::ExifTool;
 
 # Core dependencies
 use File::Spec;
+use Time::gmtime;
 
 =head1 NAME
 
@@ -373,71 +374,181 @@ sub ps_header {
   (($page_width > 0) and ($page_height > 0)) or
     die "Invalid page size, stopped";
   
-  # First comes the PostScript signature line
-  print {$arg_fh} "%!PS\n\n";
+  # We also need the title, font name, tiling columns and rows, and the
+  # count of landscape and portrait pictures
+  ((exists $arg_p->{'title'}) and
+      (exists $arg_p->{'font_name'}) and
+      (exists $arg_p->{'tile_cols'}) and
+      (exists $arg_p->{'tile_rows'}) and
+      (exists $arg_p->{'lcount'}) and
+      (exists $arg_p->{'pcount'})) or
+    die "Missing parameters, stopped";
+  
+  my $doc_title = $arg_p->{'title'};
+  my $font_name = $arg_p->{'font_name'};
+  
+  my $tile_cols = int($arg_p->{'tile_cols'});
+  my $tile_rows = int($arg_p->{'tile_rows'});
+  my $lcount    = int($arg_p->{'lcount'});
+  my $pcount    = int($arg_p->{'pcount'});
+  
+  (($tile_cols > 0) and ($tile_rows > 0)) or
+    die "Invalid tiling information, stopped";
+  (($lcount > 0) or ($pcount > 0)) or
+    die "Invalid picture counts, stopped";
+  
+  # First comes the PostScript signature line, declaring that we are
+  # following the Document Structuring Conventions
+  print {$arg_fh} "%!PS-Adobe-3.0\n";
+  
+  # Now the title and creator metadata
+  print {$arg_fh} "%%Title: $doc_title\n";
+  print {$arg_fh} "%%Creator: pbalbum\n";
+  
+  # Add a current timestamp
+  my $gm = gmtime();
+  my $tstamp = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+                  ($gm->year() + 1900), ($gm->mon() + 1), $gm->mday(),
+                  $gm->hour(), $gm->min(), $gm->sec());
+  print {$arg_fh} "%%CreationDate: $tstamp\n";
+  
+  # Indicate that everything will be 7-bit US-ASCII (embedded images
+  # will be Base-85 encoded into ASCII)
+  print {$arg_fh} "%%DocumentData: Clean7Bit\n";
+  
+  # Indicate which font we will need
+  print {$arg_fh} "%%DocumentNeededResources: font $font_name\n";
   
   # Set the page dimensions; but note that the natural orientation of
   # PostScript is portrait, so we will actually be reversing the width
   # and height when we output dimensions
-  if ($page_width < 0.5) {
-    $page_width = 0.5;
+  if ($page_width < 1.0) {
+    $page_width = 1.0;
   }
-  if ($page_height < 0.5) {
-    $page_height = 0.5;
+  if ($page_height < 1.0) {
+    $page_height = 1.0;
   }
   
   $page_width = sprintf("%.0f", $page_width);
   $page_height = sprintf("%.0f", $page_height);
   
+  # Declare the media type "Regular" which will be used for all pages;
+  # the width and height are reversed because we need to declare for
+  # portrait orientation
   print {$arg_fh}
-    "<< /PageSize [$page_height $page_width] >> setpagedevice\n";
+    "%%DocumentMedia: Regular $page_height $page_width 0 white ()\n";
   
-  # Next we need to get the named font
-  print {$arg_fh} "/$font_name findfont\n";
+  # Declare that we require LanguageLevel 2 support
+  print {$arg_fh} "%%LanguageLevel: 2\n";
   
-  # Convert font size to string with one decimal places
+  # Compute the total number of pages that will be output; begin with a
+  # count of zero
+  my $total_pages = 0;
+  
+  # If there are landscape pages, determine how many pages based on
+  # tiling and add to the count
+  if ($lcount > 0) {
+    $total_pages = $total_pages
+                      + int($lcount / ($tile_cols * $tile_rows));
+    if (($lcount % ($tile_cols * $tile_rows)) != 0) {
+      $total_pages++;
+    }
+  }
+  
+  # If there are portrait pages, determine how many pages based on
+  # tiling and add to the count
+  if ($pcount > 0) {
+    $total_pages = $total_pages
+                      + int($pcount / ($tile_cols * $tile_rows));
+    if (($pcount % ($tile_cols * $tile_rows)) != 0) {
+      $total_pages++;
+    }
+  }
+  
+  # Declare total number of pages and that pages will be in ascending
+  # order of page number
+  print {$arg_fh} "%%Pages: $total_pages\n";
+  print {$arg_fh} "%%PageOrder: Ascend\n";
+  
+  # End of metadata comments at the start
+  print {$arg_fh} "%%EndComments\n";
+  
+  # Declare that all pages, unless specified otherwise, will use the
+  # selected font and use the "Regular" media that we declared earlier
+  print {$arg_fh} "%%BeginDefaults\n";
+  print {$arg_fh} "%%PageResources: font $font_name\n";
+  print {$arg_fh} "%%PageMedia: Regular\n";
+  print {$arg_fh} "%%EndDefaults\n";
+  
+  # We don't have an actual prolog section, but we will still emit the
+  # tag indicating end of prolog here, since it is customarily used to
+  # mark the end of the metadata header
+  print {$arg_fh} "%%EndProlog\n";
+  
+  # Begin our document setup section, which is PostScript code that will
+  # run before any of the pages, and is used to declare things that are
+  # global to all pages
+  print {$arg_fh} "%%BeginSetup\n";
+  
+  # The first thing we do in the setup section is set the page
+  # dimensions in PostScript code; once again, width and height are
+  # flipped because the natural orientation of PostScript pages is
+  # portrait
+  print {$arg_fh}
+    "  << /PageSize [$page_height $page_width] >> setpagedevice\n\n";
+  
+  # We use the same font everywhere, so next we need to get the named
+  # font
+  print {$arg_fh} "  /$font_name findfont\n";
+  
+  # Convert font size to string with one decimal place
   $font_size = sprintf("%.1f", $font_size);
   
   # Scale the font
-  print {$arg_fh} "$font_size scalefont\n";
+  print {$arg_fh} "  $font_size scalefont\n";
   
-  # Set the font
-  print {$arg_fh} "setfont\n\n";
+  # Set the font, which will be used document-wide
+  print {$arg_fh} "  setfont\n\n";
   
-  # Save graphics state before determining font height
-  print {$arg_fh} "gsave\n";
+  # The last thing we do is determine the font height and the font
+  # baseline offset; save graphics state before determining these
+  # parameters
+  print {$arg_fh} "  gsave\n";
   
-  # Move to (0, 0) and determine bounding box of letters in the current
-  # font
-  my $motto = "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG";
-  my $motto = $motto . " the quick brown fox jumps over the lazy dog";
+  # Move to (0, 0) and determine bounding box of letters and underscore
+  # in the current font
+  my $motto = "THEQUICKBROWNFOXJUMPSOVERALAZYDOG_";
+  my $motto = $motto . "thequickbrownfoxjumpsoveralazydog";
   
-  print {$arg_fh} "newpath\n";
-  print {$arg_fh} "0 0 moveto\n";
-  print {$arg_fh} "($motto)\n";
-  print {$arg_fh} "  true charpath flattenpath pathbbox\n";
+  print {$arg_fh} "  newpath\n";
+  print {$arg_fh} "  0 0 moveto\n";
+  print {$arg_fh} "  ($motto)\n";
+  print {$arg_fh} "    true charpath flattenpath pathbbox\n";
 
   # [lower_x] [lower_y] [upper_x] [upper_y] -> [lower_y] [upper_y]
-  print {$arg_fh} "exch pop 3 -1 roll pop\n";
+  print {$arg_fh} "  exch pop 3 -1 roll pop\n";
   
   # [lower_y] [upper_y] -> [lower_y] [upper_y] [upper_y] [lower_y]
-  print {$arg_fh} "dup 2 index\n";
+  print {$arg_fh} "  dup 2 index\n";
   
   # [lower_y] [upper_y] [upper_y] [lower_y] -> [lower_y] [upper_y] [h]
   # where [h] is the full height of the bounding box
-  print {$arg_fh} "neg add\n";
+  print {$arg_fh} "  neg add\n";
   
   # [lower_y] [upper_y] [h] -> [lower_y] [h]
-  print {$arg_fh} "exch pop\n";
+  print {$arg_fh} "  exch pop\n";
   
   # Define fontHeight as the height of the font, fontBase as the
   # vertical distance between bottom of bounding box to baseline, and
   # clear the PostScript stack in the process
-  print {$arg_fh} "/fontHeight exch def\n";
-  print {$arg_fh} "/fontBase exch neg def\n";
+  print {$arg_fh} "  /fontHeight exch def\n";
+  print {$arg_fh} "  /fontBase exch neg def\n";
   
   # Restore graphics state after determining font height
-  print {$arg_fh} "grestore\n\n";
+  print {$arg_fh} "  grestore\n";
+  
+  # We have now completed initial setup
+  print {$arg_fh} "%%EndSetup\n";
 }
 
 # Write the PostScript code for the image within a photo cell.
@@ -550,7 +661,7 @@ sub ps_pic {
   $arg_h = sprintf("%.1f", $arg_h);
   
   # Save graphics state at start of operation
-  print {$arg_fh} "gsave\n";
+  print {$arg_fh} "  gsave\n";
   
   # ===
   # The image drawing operation that we will use later draws the image
@@ -575,14 +686,14 @@ sub ps_pic {
   # The LAST transformation (see above) we need to do is to translate
   # the image so that the bottom-left corner is at the proper location
   # on the page
-  print {$arg_fh} "$arg_x $arg_y translate\n";
+  print {$arg_fh} "  $arg_x $arg_y translate\n";
   
   # Before that, we need to scale the image so that instead of a unit
   # square, the image has the proper physical dimensions and aspect
   # ratio on the page; we will handle portrait mode transformation
   # below, so for this step we assume the image is always in landscape
   # orientation
-  print {$arg_fh} "$arg_w $arg_h scale\n\n";
+  print {$arg_fh} "  $arg_w $arg_h scale\n\n";
   
   # If we are in portrait mode, the FIRST thing we need is to do two
   # transformations to the  unit square of the unit square image; first,
@@ -592,30 +703,33 @@ sub ps_pic {
   # transformation operator PREFIXES a matrix, we specify these INITIAL
   # transformations in REVERSE order
   if ($arg_orient == 1) {
-    print {$arg_fh} "0 1 translate\n";
-    print {$arg_fh} "270 rotate\n";
+    print {$arg_fh} "  0 1 translate\n";
+    print {$arg_fh} "  270 rotate\n";
   }
   
   # Draw JPEG RGB color image to page, reading Base-85 encoded binary
   # data from the PostScript file immediately after this command, but
   # leave out the final "colorimage" command, which will be packaged
   # with the embedded data
-  print {$arg_fh} "$target_w $target_h 8\n";
-  print {$arg_fh} "[$target_w 0 0 -$target_h 0 $target_h]\n";
-  print {$arg_fh} "currentfile\n";
-  print {$arg_fh} "/ASCII85Decode filter\n";
-  print {$arg_fh} "/DCTDecode filter\n";
-  print {$arg_fh} "false 3\n\n";
+  print {$arg_fh} "  $target_w $target_h 8\n";
+  print {$arg_fh} "  [$target_w 0 0 -$target_h 0 $target_h]\n";
+  print {$arg_fh} "  currentfile\n";
+  print {$arg_fh} "  /ASCII85Decode filter\n";
+  print {$arg_fh} "  /DCTDecode filter\n";
+  print {$arg_fh} "  false 3\n\n";
   
   # Read from a pipeline that first scales the given image to the target
-  # dimensions and sets the colorspace to RGB, and then transforms the
+  # dimensions as well as setting the colorspace to RGB and rotating to
+  # respect EXIF orientation if necessary, and then transforms the
   # scaled JPEG image into Base-85 and packages for PostScript with a
-  # "colorimage" header command
+  # "colorimage" header command and with Document Structuring Convention
+  # packaging
   my $cmd = "$app_gm convert "
             . "-auto-orient -size ${target_w}x${target_h} "
             . "\"$arg_path\" "
             . "-colorspace RGB -resize ${target_w}x${target_h}! "
-            . "+profile \"*\" jpeg:- | $app_psdata -head colorimage";
+            . "+profile \"*\" jpeg:- | "
+            . "$app_psdata -dsc -head colorimage";
   open(my $op_fh, '-|', $cmd) or
     die "Couldn't run command '$cmd', stopped";
   
@@ -634,7 +748,7 @@ sub ps_pic {
   close($op_fh);
   
   # Restore graphics state at end of operation
-  print {$arg_fh} "grestore\n\n";
+  print {$arg_fh} "  grestore\n\n";
 }
 
 # Write the PostScript code for the caption of a photo cell.
@@ -726,33 +840,33 @@ sub ps_cap {
   $arg_h = sprintf("%.1f", $arg_h);
   
   # Begin PostScript code by saving graphics state
-  print {$arg_fh} "gsave\n";
+  print {$arg_fh} "  gsave\n";
   
   # Push the caption string onto the PostScript stack, using base85
   # encoding so we don't need escaping
   $pic_name = Convert::Ascii85::encode($pic_name);
-  print {$arg_fh} "<~$pic_name~>\n";
+  print {$arg_fh} "  <~$pic_name~>\n";
   
   # [string] -> [string] [string_width]
-  print {$arg_fh} "dup stringwidth pop\n";
+  print {$arg_fh} "  dup stringwidth pop\n";
   
   # [string] [string_width] -> [string] [diff] where [diff] is the
   # difference from the string width to the width of the caption area
-  print {$arg_fh} "$arg_w exch sub\n";
+  print {$arg_fh} "  $arg_w exch sub\n";
   
   # [string] [diff] -> [string] [x] where [x] is the X coordinate the
   # string should be displayed at
-  print {$arg_fh} "2 div $arg_x add\n";
+  print {$arg_fh} "  2 div $arg_x add\n";
   
   # [string] [x] -> [string] [x] [y] where [y] is the Y coordinate of
   # the baseline of the string on the page
-  print {$arg_fh} "$arg_y fontBase add\n";
+  print {$arg_fh} "  $arg_y fontBase add\n";
   
   # [string] [x] [y] -> . and display string in the process
-  print {$arg_fh} "moveto show\n";
+  print {$arg_fh} "  moveto show\n";
   
   # End PostScript code by restoring graphics state
-  print {$arg_fh} "grestore\n\n";
+  print {$arg_fh} "  grestore\n\n";
 }
 
 # Write the PostScript code for a complete photo cell.
@@ -1703,6 +1817,12 @@ for my $f (@file_list) {
           $scan_count, $#file_list + 1, $prop_dict{'const_status'});
 }
 
+# Add properties "lcount" and "pcount" to count the number of landscape
+# and the number of portrait pictures
+#
+$prop_dict{'lcount'} = $#land_list + 1;
+$prop_dict{'pcount'} = $#port_list + 1;
+
 # Time to open the output file
 #
 open(my $fh_out, ">", $arg_ps_path) or
@@ -1712,6 +1832,9 @@ open(my $fh_out, ">", $arg_ps_path) or
 #
 ps_header($fh_out, \%prop_dict);
 
+# The outermost loop iterates first over the landscape pictures and then
+# over the portrait pictures
+my $page_num = 0;
 for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
   
   # Get the total number of photos we need to add to the album in this
@@ -1736,9 +1859,27 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
   # left
   while ($photo_count > 0) {
     
+    # Increment the page number and declare the start of the page
+    $page_num++;
+    print { $fh_out } "\n%%Page: $page_num $page_num\n";
+    
+    # Declare the proper page orientation
+    if ($orient_i == 0) {
+      print { $fh_out } "%%PageOrientation: Landscape\n";
+      
+    } elsif ($orient_i == 1) {
+      print { $fh_out } "%%PageOrientation: Portrait\n";
+      
+    } else {
+      die "Invalid orientation index, stopped";
+    }
+    
+    # Now begin the page setup section
+    print {$ fh_out } "%%BeginPageSetup\n";
+    
     # At the start of the page rendering we are going to save PostScript
     # state, to enforce rendering independence between pages
-    print { $fh_out } "/pgsave save def\n";
+    print { $fh_out } "  /pgsave save def\n";
     
     # ===
     # The natural orientation is PostScript is portrait, but all of our
@@ -1770,10 +1911,12 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
     
     if ($prop_dict{'page_width'} != $prop_dict{'page_height'}) {
       my $approx_dim = sprintf("%.0f", $prop_dict{'page_height'});
-      print { $fh_out } "$approx_dim 0 translate\n";
-      print { $fh_out } "90 rotate\n";
+      print { $fh_out } "  $approx_dim 0 translate\n";
+      print { $fh_out } "  90 rotate\n";
     }
-    print { $fh_out } "\n";
+    
+    # We are now done with page setup
+    print { $fh_out } "%%EndPageSetup\n\n";
     
     # ===
     # The way that photos are laid out in cells on the page differs
@@ -1913,12 +2056,16 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
     
     # Restore the PostScript state that we saved earlier; this is indeed
     # supposed to be done BEFORE the showpage operator
-    print { $fh_out } "pgsave restore\n";
+    print { $fh_out } "  pgsave restore\n";
     
     # Display this page
-    print { $fh_out } "showpage\n";
+    print { $fh_out } "  showpage\n";
   }
 }
+
+# Finally, add an empty trailer and declare the end of the file
+print { $fh_out } "\n%%Trailer\n";
+print { $fh_out } "%%EOF\n";
 
 # Close the output file
 #
