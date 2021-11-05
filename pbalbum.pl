@@ -863,9 +863,9 @@ sub ps_cell {
 # Program entrypoint
 # ==================
 
-# Check that we got exactly four parameters
+# Check that we got exactly five parameters
 #
-($#ARGV == 3) or die "Wrong number of program arguments, stopped";
+($#ARGV == 4) or die "Wrong number of program arguments, stopped";
 
 # Grab the arguments
 #
@@ -873,10 +873,30 @@ my $arg_ps_path     = $ARGV[0];
 my $arg_list_path   = $ARGV[1];
 my $arg_config_path = $ARGV[2];
 my $arg_layout_path = $ARGV[3];
+my $arg_title       = $ARGV[4];
 
 # Now we will construct the properties dictionary
 #
 my %prop_dict;
+
+# Convert the title to string and check it
+#
+$arg_title = "$arg_title";
+((length $arg_title > 0) and (length $arg_title <= 62)) or
+  die "Title has invalid length, stopped";
+
+($arg_title =~ /^[\p{ASCII}]+$/u) or
+  die "Title contains non-ASCII characters, stopped";
+($arg_title =~ /^[\p{POSIX_Graph} ]+$/a) or
+  die "Title contains control codes, stopped";
+($arg_title =~ /^[^\s]/a) or
+  die "Title may not begin with space, stopped";
+($arg_title =~ /[^\s]$/a) or
+  die "Title may not end with space, stopped";
+
+# Add title to dictionary as "title" property
+#
+$prop_dict{'title'} = $arg_title;
 
 # Open the platform configuration file and add any relevant properties
 # to the properties dictionary
