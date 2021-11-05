@@ -128,7 +128,7 @@ generated album.  It has the following format:
   name=Courier-Bold
   size=10.0
   maxlen=12
-  ext=.jpg,.jpeg
+  ext=.jpg;.jpeg
   
   [aspect]
   awidth=4.0
@@ -179,9 +179,9 @@ The C<maxlen> parameter indicates the maximum length in characters of a
 caption, not including any dropped extension.  It must be an integer
 that is greater than zero.
 
-The C<ext> parameter is a comma-separated list of image file extensions
-that will be dropped from file names.  Each extension must begin with a
-dot.  Extension matching is case-insensitive.
+The C<ext> parameter is a semicolon-separated list of image file
+extensions that will be dropped from file names.  Each extension must
+begin with a dot.  Extension matching is case-insensitive.
 
 The aspect ratio takes two floating-point parameters that must be
 greater than zero.  This abstractly specifies the aspect ratio of all
