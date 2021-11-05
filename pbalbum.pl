@@ -1689,7 +1689,11 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
   # Keep generating pages in this orientation while there are photos
   # left
   while ($photo_count > 0) {
-  
+    
+    # At the start of the page rendering we are going to save PostScript
+    # state, to enforce rendering independence between pages
+    print { $fh_out } "/pgsave save def\n";
+    
     # Photos go from top to bottom on outer loop, Y coordinates second
     for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
       
@@ -1751,7 +1755,11 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
         }
       }
     }
-  
+    
+    # Restore the PostScript state that we saved earlier; this is indeed
+    # supposed to be done BEFORE the showpage operator
+    print { $fh_out } "pgsave restore\n";
+    
     # Display this page
     print { $fh_out } "showpage\n";
   }
