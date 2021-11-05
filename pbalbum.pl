@@ -494,6 +494,9 @@ sub ps_pic {
   #
   #   arg_w * z = target_w
   #   arg_h * z = target_h
+  #
+  # For this computation, we are ignoring the portrait mode flag and
+  # always assuming the transformed landscape orientation of the picture
   
   my $z = sqrt($scale_pix / ($arg_w * $arg_h));
   
@@ -507,6 +510,13 @@ sub ps_pic {
     $target_h = $const_mindim;
   }
   
+  # If we are in portrait mode, swap the target width and height
+  if ($arg_orient == 1) {
+    my $st = $target_w;
+    $target_w = $target_h;
+    $target_h = $st;
+  }
+  
   # Convert page area floats to strings
   $arg_x = sprintf("%.1f", $arg_x);
   $arg_y = sprintf("%.1f", $arg_y);
@@ -516,9 +526,49 @@ sub ps_pic {
   # Save graphics state at start of operation
   print {$arg_fh} "gsave\n";
   
-  # Set up target location on page
+  # ===
+  # The image drawing operation that we will use later draws the image
+  # into a unit square from (0, 0) to (1, 1).  We need to set up the
+  # current transformation matrix (CTM) so that this unit square is
+  # projected onto the correct area on the page.  The CTM is a 3x3
+  # matrix that works like this:
+  #
+  #   [x_u y_u 1] * CTM = [x_d y_d 1]
+  #
+  # (x_u, y_u) is the coordinate in user space, which is where we
+  # perform PostScript operators.  (x_d, y_d) is the coordinate in
+  # device space, where the actual rendering takes place.  The default
+  # CTM has the origin (0, 0) in the bottom-left corner of the page,
+  # (w, h) on the top-right corner of the page, and the units on both
+  # axes are 1/72 of an inch.
+  #
+  # Each transformation operator will PREFIX a matrix to the CTM.  So,
+  # we need to specify the operations in REVERSE order here.
+  # ===
+  
+  # The LAST transformation (see above) we need to do is to translate
+  # the image so that the bottom-left corner is at the proper location
+  # on the page
   print {$arg_fh} "$arg_x $arg_y translate\n";
+  
+  # Before that, we need to scale the image so that instead of a unit
+  # square, the image has the proper physical dimensions and aspect
+  # ratio on the page; we will handle portrait mode transformation
+  # below, so for this step we assume the image is always in landscape
+  # orientation
   print {$arg_fh} "$arg_w $arg_h scale\n\n";
+  
+  # If we are in portrait mode, the FIRST thing we need is to do two
+  # transformations to the  unit square of the unit square image; first,
+  # rotate 270 degrees counter-clockwise around the origin, and second,
+  # translate the unit square one unit up the Y axis so that the
+  # bottom-left corner is once again at the origin; since each
+  # transformation operator PREFIXES a matrix, we specify these INITIAL
+  # transformations in REVERSE order
+  if ($arg_orient == 1) {
+    print {$arg_fh} "0 1 translate\n";
+    print {$arg_fh} "270 rotate\n";
+  }
   
   # Draw JPEG RGB color image to page, reading Base-85 encoded binary
   # data from the PostScript file immediately after this command, but
