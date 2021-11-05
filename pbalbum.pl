@@ -416,29 +416,34 @@ sub ps_header {
 
 # Write the PostScript code for the image within a photo cell.
 #
+# Portrait mode causes the images to be rendered in portrait aspect and
+# rotated on the page.
+#
 # Parameters:
 #
 #   1: [file handle ref] - the output file to write
 #   2: [hash reference ] - the parameters dictionary
-#   3: [float ] - X page coordinate of BOTTOM-left corner of image
-#   4: [float ] - Y page coordinate of BOTTOM-left corner of image
-#   5: [float ] - width of image on page
-#   6: [float ] - height of image on page
-#   7: [string] - path to photo file
+#   3: [float  ] - X page coordinate of BOTTOM-left corner of image
+#   4: [float  ] - Y page coordinate of BOTTOM-left corner of image
+#   5: [float  ] - width of image on page
+#   6: [float  ] - height of image on page
+#   7: [string ] - path to photo file
+#   8: [integer] - 0 for regular mode, 1 for portrait mode
 #
 sub ps_pic {
   
-  # Must be exactly seven parameters
-  ($#_ == 6) or die "Wrong number of parameters, stopped";
+  # Must be exactly eight parameters
+  ($#_ == 7) or die "Wrong number of parameters, stopped";
   
   # Grab the parameters
-  my $arg_fh   = shift;
-  my $arg_p    = shift;
-  my $arg_x    = shift;
-  my $arg_y    = shift;
-  my $arg_w    = shift;
-  my $arg_h    = shift;
-  my $arg_path = shift;
+  my $arg_fh     = shift;
+  my $arg_p      = shift;
+  my $arg_x      = shift;
+  my $arg_y      = shift;
+  my $arg_w      = shift;
+  my $arg_h      = shift;
+  my $arg_path   = shift;
+  my $arg_orient = shift;
   
   # Check types
   (ref($arg_p) eq 'HASH') or
@@ -449,7 +454,12 @@ sub ps_pic {
   $arg_w = $arg_w + 0.0;
   $arg_h = $arg_h + 0.0;
   
-  $arg_path = "$arg_path";
+  $arg_path   = "$arg_path";
+  $arg_orient = int($arg_orient);
+  
+  # Check orientation index
+  (($arg_orient == 0) or ($arg_orient == 1)) or
+    die "Invalid orientation index, stopped";
   
   # Width and height must be greater than zero
   (($arg_w > 0) and ($arg_h > 0)) or
@@ -671,29 +681,36 @@ sub ps_cap {
 
 # Write the PostScript code for a complete photo cell.
 #
+# In portrait mode, everything is the same, except the picture is
+# rendered on its side and the orientation comment is changed for the
+# Document Structuring Conventions.  The layout and coordinate system
+# still remains the same.
+#
 # Parameters:
 #
 #   1: [file handle ref] - the output file to write
 #   2: [hash reference ] - the parameters dictionary
-#   3: [float ] - X page coordinate of BOTTOM-left corner of cell
-#   4: [float ] - Y page coordinate of BOTTOM-left corner of cell
-#   5: [float ] - width of cell
-#   6: [float ] - height of cell
-#   7: [string] - path to photo file to use for this cell
+#   3: [float  ] - X page coordinate of BOTTOM-left corner of cell
+#   4: [float  ] - Y page coordinate of BOTTOM-left corner of cell
+#   5: [float  ] - width of cell
+#   6: [float  ] - height of cell
+#   7: [string ] - path to photo file to use for this cell
+#   8: [integer] - 0 for regular mode, 1 for portrait mode
 #
 sub ps_cell {
   
-  # Must be exactly seven parameters
-  ($#_ == 6) or die "Wrong number of parameters, stopped";
+  # Must be exactly eight parameters
+  ($#_ == 7) or die "Wrong number of parameters, stopped";
   
   # Grab the parameters
-  my $arg_fh   = shift;
-  my $arg_p    = shift;
-  my $arg_x    = shift;
-  my $arg_y    = shift;
-  my $arg_w    = shift;
-  my $arg_h    = shift;
-  my $arg_path = shift;
+  my $arg_fh     = shift;
+  my $arg_p      = shift;
+  my $arg_x      = shift;
+  my $arg_y      = shift;
+  my $arg_w      = shift;
+  my $arg_h      = shift;
+  my $arg_path   = shift;
+  my $arg_orient = shift;
   
   # Check types
   (ref($arg_p) eq 'HASH') or
@@ -704,7 +721,12 @@ sub ps_cell {
   $arg_w = $arg_w + 0.0;
   $arg_h = $arg_h + 0.0;
   
-  $arg_path = "$arg_path";
+  $arg_path   = "$arg_path";
+  $arg_orient = int($arg_orient);
+  
+  # Orientation must be zero or one
+  (($arg_orient == 0) or ($arg_orient == 1)) or
+    die "Invalid orientation, stopped";
   
   # Width and height must be greater than zero
   (($arg_w > 0) and ($arg_h > 0)) or
@@ -758,7 +780,7 @@ sub ps_cell {
   
   ps_pic($arg_fh, $arg_p,
           $img_x, $img_y, $img_w, $img_h,
-          $arg_path);
+          $arg_path, $arg_orient);
 }
 
 # ==================
@@ -1652,7 +1674,7 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
           
           ps_cell($fh_out, \%prop_dict,
                   $cell_x, $cell_y, $cell_width, $cell_height,
-                  $photo_path);
+                  $photo_path, $orient_i);
           
           # Reduce photo count and increase photo index
           $photo_count--;
@@ -1660,16 +1682,22 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
           
           # Status update if necessary
           my $status_op;
+          my $status_count;
+          
           if ($orient_i == 0) {
             $status_op = "Compile landscape";
+            $status_count = $#land_list + 1;
+            
           } elsif ($orient_i == 1) {
             $status_op = "Compile portrait";
+            $status_count = $#port_list + 1;
+            
           } else {
             die "Unknown orientation index, stopped";
           }
           
           status_update($status_op,
-            $photo_i, $#file_list + 1, $prop_dict{'const_status'});
+            $photo_i, $status_count, $prop_dict{'const_status'});
         }
       }
     }
