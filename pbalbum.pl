@@ -15,14 +15,21 @@ pbalbum.pl - Compile a PostScript photo album.
 
 =head1 SYNOPSIS
 
-  pbalbum.pl album.ps filelist.txt config.ini layout.ini
+  pbalbum.pl album.ps filelist.txt config.ini layout.ini "Album Title"
 
 =head1 DESCRIPTION
 
 This script compiles a "photo album," which is a PostScript document
 that contains thumbnail previews labeled with photo names.  This
-document can then be compiled into a PDF photo album file using
-GhostScript.
+document can then be compiled into a PDF file by running it through
+GhostScript (or any other PostScript distiller).  Here is a sample
+GhostScript command:
+
+  gs -sDEVICE=pdfwrite -sOutputFile=out.pdf -dNOPAUSE -dBATCH in.ps
+
+PostScript Document Structuring Conventions are followed within the
+generated PostScript file, so that things like page size, page
+orientation, and the document title should be set properly.
 
 =head1 ABSTRACT
 
@@ -38,6 +45,16 @@ The third parameter is the path to a configuration file that has values
 specific to the current platform.  The fourth parameter is the path to a
 configuration file that determines the layout of the generated album.
 The format of these configuration files are detailed below.
+
+Finally, the fifth parameter is the title to give the document.  This
+will be included as a standard title comment in the generated
+PostScript.  When using a PDF distiller that supports the comment, the
+title of the document that is displayed when opening the PDF file should
+be equal to this parameter.
+
+The fifth parameter must have at least one character and at most 62
+characters.  Neither the first nor last character may be a space.  All
+characters must be in printing US-ASCII range [0x20, 0x7e].
 
 =head2 System configuration file
 
@@ -72,6 +89,14 @@ use for the buffer to transfer Base-85 encoded JPEG images into the
 generated PostScript.  The C<status> constant is the number of seconds
 between status updates on long operations.  All of these constants must
 be integers that are greater than zero.
+
+The GraphicsMagick project can be found at the following website:
+
+  http://www.graphicsmagick.org
+
+The C<psdata> utility can be found at the following link:
+
+  http://www.purl.org/canidtech/r/psdata
 
 =head2 Layout configuration file
 
