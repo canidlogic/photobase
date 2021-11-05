@@ -351,7 +351,9 @@ sub ps_header {
   # First comes the PostScript signature line
   print {$arg_fh} "%!PS\n\n";
   
-  # Print a comment giving the page dimensions in points
+  # Set the page dimensions; but note that the natural orientation of
+  # PostScript is portrait, so we will actually be reversing the width
+  # and height when we output dimensions
   if ($page_width < 0.5) {
     $page_width = 0.5;
   }
@@ -359,12 +361,11 @@ sub ps_header {
     $page_height = 0.5;
   }
   
-  $page_width = sprintf("%.1f", $page_width);
-  $page_height = sprintf("%.1f", $page_height);
+  $page_width = sprintf("%.0f", $page_width);
+  $page_height = sprintf("%.0f", $page_height);
   
-  print {$arg_fh} "% Page dimensions (PostScript points)\n";
-  print {$arg_fh} "% Page width : $page_width\n";
-  print {$arg_fh} "% Page height: $page_height\n";
+  print {$arg_fh}
+    "<< /PageSize [$page_height $page_width] >> setpagedevice\n";
   
   # Next we need to get the named font
   print {$arg_fh} "/$font_name findfont\n";
@@ -1693,6 +1694,41 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
     # At the start of the page rendering we are going to save PostScript
     # state, to enforce rendering independence between pages
     print { $fh_out } "/pgsave save def\n";
+    
+    # ===
+    # The natural orientation is PostScript is portrait, but all of our
+    # rendering (including in portrait mode!) assumes the page is in
+    # landscape orientation.  Therefore, except in the case where the
+    # page dimensions are perfectly square, we need to adjust the
+    # Current Transformation Matrix (CTM) so that our operations on a
+    # landscape page are rotated to be on its side on a portrait page.
+    #
+    # The mapping of user-space coordinates (x_u, y_u) to device-space
+    # coordinates (x_d, y_d) looks like this:
+    #
+    #   [x_u y_u 1] * CTM = [x_d y_d 1]
+    #
+    # Each PostScript transform operator PREFIXES a matrix operation to
+    # the CTM.  The default CTM that we start out with has (0, 0) in the
+    # bottom-left corner of the page and (w, h) in the upper-right
+    # corner of the page, with the units along both axes as 1/72 inch.
+    #
+    # To translate landscape rendering to portrait in the usual case of
+    # a non-square page, we need to first rotate the page 90 degrees
+    # counter-clockwise and then translate it along the X axis by its
+    # shorter dimension so that the bottom-left corner of the projection
+    # is on the bottom-left corner of the page.
+    #
+    # Since transformations PREFIX to the CTM, we need to specify these
+    # two operations in REVERSE order.
+    # ===
+    
+    if ($prop_dict{'page_width'} != $prop_dict{'page_height'}) {
+      my $approx_dim = sprintf("%.0f", $prop_dict{'page_height'});
+      print { $fh_out } "$approx_dim 0 translate\n";
+      print { $fh_out } "90 rotate\n";
+    }
+    print { $fh_out } "\n";
     
     # Photos go from top to bottom on outer loop, Y coordinates second
     for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
