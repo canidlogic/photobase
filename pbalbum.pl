@@ -1594,54 +1594,89 @@ open(my $fh_out, ">", $arg_ps_path) or
 #
 ps_header($fh_out, \%prop_dict);
 
-# Get the total number of photos we need to add to this album and set
-# the photo index to start at zero
-#
-my $photo_count = $#file_list + 1;
-my $photo_i = 0;
-
-# Keep generating pages while there are photos left
-#
-while ($photo_count > 0) {
-
-  # Photos go from top to bottom on outer loop, Y coordinates second
-  for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
+for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
+  
+  # Get the total number of photos we need to add to the album in this
+  # orientation and set the photo index to start at zero
+  my $photo_count;
+  my $photo_i = 0;
+  
+  if ($orient_i == 0) {
+    # We do the landscape orientation first
+    $photo_count = $#land_list + 1;
+  
+  } elsif ($orient_i == 1) {
+    # We do the portrait orientation second
+    $photo_count = $#port_list + 1;
     
-    # Photos go from left to right on inner loop, X coordinates first
-    for(my $x = 0; $x < $prop_dict{'tile_cols'}; $x++) {
+  } else {
+    # Shouldn't happen
+    die "Unknown orientation index, stopped";
+  }
+  
+  # Keep generating pages in this orientation while there are photos
+  # left
+  while ($photo_count > 0) {
+  
+    # Photos go from top to bottom on outer loop, Y coordinates second
+    for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
       
-      # Only do something in this location if at least one photo remains
-      if ($photo_count > 0) {
-      
-        # The X coordinate on the page of the left side of this photo
-        # cell is the X offset of the cell multiplied by the cell width,
-        # added to the left margin
-        my $cell_x = ($x * $cell_width) + $prop_dict{'margin_left'};
-      
-        # The Y coordinate on the page of the BOTTOM side of this photo
-        # cell is the inverse Y offset of the cell multiplied by the
-        # cell height, added to the bottom margin
-        my $cell_y = (($prop_dict{'tile_rows'} - $y - 1) * $cell_height)
-                        + $prop_dict{'margin_bottom'};
+      # Photos go from left to right on inner loop, X coordinates first
+      for(my $x = 0; $x < $prop_dict{'tile_cols'}; $x++) {
         
-        # Draw the cell
-        ps_cell($fh_out, \%prop_dict,
-                $cell_x, $cell_y, $cell_width, $cell_height,
-                $file_list[$photo_i]);
+        # Only do something in this location if at least one photo
+        # remains
+        if ($photo_count > 0) {
         
-        # Reduce photo count and increase photo index
-        $photo_count--;
-        $photo_i++;
+          # The X coordinate on the page of the left side of this photo
+          # cell is the X offset of the cell multiplied by the cell
+          # width, added to the left margin
+          my $cell_x = ($x * $cell_width) + $prop_dict{'margin_left'};
         
-        # Status update if necessary
-        status_update("Compile",
-          $photo_i, $#file_list + 1, $prop_dict{'const_status'});
+          # The Y coordinate on the page of the BOTTOM side of this
+          # photo cell is the inverse Y offset of the cell multiplied by
+          # the cell height, added to the bottom margin
+          my $cell_y = (($prop_dict{'tile_rows'} - $y - 1)
+                            * $cell_height)
+                          + $prop_dict{'margin_bottom'};
+          
+          # Draw the cell
+          my $photo_path;
+          if ($orient_i == 0) {
+            $photo_path = $land_list[$photo_i];
+          } elsif ($orient_i == 1) {
+            $photo_path = $port_list[$photo_i];
+          } else {
+            die "Unknown orientation index, stopped";
+          }
+          
+          ps_cell($fh_out, \%prop_dict,
+                  $cell_x, $cell_y, $cell_width, $cell_height,
+                  $photo_path);
+          
+          # Reduce photo count and increase photo index
+          $photo_count--;
+          $photo_i++;
+          
+          # Status update if necessary
+          my $status_op;
+          if ($orient_i == 0) {
+            $status_op = "Compile landscape";
+          } elsif ($orient_i == 1) {
+            $status_op = "Compile portrait";
+          } else {
+            die "Unknown orientation index, stopped";
+          }
+          
+          status_update($status_op,
+            $photo_i, $#file_list + 1, $prop_dict{'const_status'});
+        }
       }
     }
+  
+    # Display this page
+    print { $fh_out } "showpage\n";
   }
-
-  # Display this page
-  print { $fh_out } "showpage\n";
 }
 
 # Close the output file
