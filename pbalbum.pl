@@ -4,6 +4,7 @@ use strict;
 # Non-core dependencies
 use Config::Tiny;
 use Convert::Ascii85;
+use Image::ExifTool;
 
 # Core dependencies
 use File::Spec;
@@ -199,21 +200,24 @@ my $last_update = time();
 #
 # Parameters:
 #
-#   1: [integer] - number of photos that have been processed
-#   2: [integer] - total number of photos
-#   3: [integer] - number of seconds between updates
+#   1: [string ] - the operation in progress
+#   2: [integer] - number of photos that have been processed
+#   3: [integer] - total number of photos
+#   4: [integer] - number of seconds between updates
 #
 sub status_update {
   
-  # Must be exactly three parameters
-  ($#_ == 2) or die "Wrong number of parameters, stopped";
+  # Must be exactly four parameters
+  ($#_ == 3) or die "Wrong number of parameters, stopped";
   
   # Grab the parameters
+  my $arg_op     = shift;
   my $arg_done   = shift;
   my $arg_total  = shift;
   my $arg_status = shift;
   
   # Convert types
+  $arg_op     = "$arg_op";
   $arg_done   = int($arg_done);
   $arg_total  = int($arg_total);
   $arg_status = int($arg_status);
@@ -236,7 +240,7 @@ sub status_update {
       my $pct = sprintf("%.1f", (($arg_done / $arg_total) * 100));
       
       # Write status report
-      print STDERR "$0: $arg_done / $arg_total ($pct%)\n";
+      print STDERR "$0: $arg_op $arg_done / $arg_total ($pct%)\n";
     }
   }
 }
@@ -771,40 +775,6 @@ my $arg_ps_path     = $ARGV[0];
 my $arg_list_path   = $ARGV[1];
 my $arg_config_path = $ARGV[2];
 my $arg_layout_path = $ARGV[3];
-
-# Read all the file paths in the given list file into an array,
-# discarding any blank or empty lines, and also verifying that all paths
-# currently exist as regular files
-#
-my @file_list;
-
-open(my $fh_list, "<", $arg_list_path) or
-  die "Can't open '$arg_list_path', stopped";
-
-while (<$fh_list>) {
-  # Removing any trailing break from the line
-  chomp;
-  
-  # Skip this line if empty or nothing but whitespace
-  next if /^\s*$/a;
-  
-  # Trim leading and trailing whitespace
-  s/^\s*//a;
-  s/\s*$//a;
-  
-  # Check that file exists
-  (-f $_) or die "Can't find file '$_', stopped";
-  
-  # Add the file path to the list
-  push @file_list, ($_);
-}
-
-close($fh_list);
-
-# Make sure at least one file defined in list
-#
-($#file_list >= 0) or
-  die "Input file list may not be empty, stopped";
 
 # Now we will construct the properties dictionary
 #
@@ -1519,6 +1489,102 @@ $prop_dict{'scale_pix'} = $prop_dict{'scale_swidth'}
 delete $prop_dict{'swidth'};
 delete $prop_dict{'sheight'};
 
+# Read all the file paths in the given list file into an array,
+# discarding any blank or empty lines, and also verifying that all paths
+# currently exist as regular files
+#
+my @file_list;
+
+open(my $fh_list, "<", $arg_list_path) or
+  die "Can't open '$arg_list_path', stopped";
+
+while (<$fh_list>) {
+  # Removing any trailing break from the line
+  chomp;
+  
+  # Skip this line if empty or nothing but whitespace
+  next if /^\s*$/a;
+  
+  # Trim leading and trailing whitespace
+  s/^\s*//a;
+  s/\s*$//a;
+  
+  # Check that file exists
+  (-f $_) or die "Can't find file '$_', stopped";
+  
+  # Add the file path to the list
+  push @file_list, ($_);
+}
+
+close($fh_list);
+
+# Make sure at least one file defined in list
+#
+($#file_list >= 0) or
+  die "Input file list may not be empty, stopped";
+
+# We are now going to sort into landscape and portrait lists, so define
+# empty arrays for those and then split the main file list into these
+# sublists
+#
+my @land_list;
+my @port_list;
+my $scan_count = 0;
+for my $f (@file_list) {
+  # Create an EXIF tool
+  my $exifTool = new Image::ExifTool;
+  
+  # Get the EXIF data for the current image
+  $exifTool->ExtractInfo($f) or
+    die "Failed to read EXIF data for '$f', stopped";
+  
+  # Get the relevant EXIF properties
+  my $exif_width  = $exifTool->GetValue('ImageWidth' , 'ValueConv');
+  my $exif_height = $exifTool->GetValue('ImageHeight', 'ValueConv');
+  my $exif_orient = $exifTool->GetValue('Orientation', 'ValueConv');
+  
+  # Image dimensions required (orientation optional)
+  ($exif_width and $exif_height) or
+    die "Failed to read EXIF image dimensions for '$f', stopped";
+  
+  # Convert to dimensions to integers
+  $exif_width = int($exif_width);
+  $exif_height = int($exif_height);
+  
+  # If orientation is defined, convert to integer, else set to 1 which
+  # is the default orientation
+  if ($exif_orient) {
+    $exif_orient = int($exif_orient);
+  } else {
+    $exif_orient = 1;
+  }
+  
+  # Determine which list the image goes on
+  if ($exif_width >= $exif_height) {
+    # Raw orientation is landscape or square; orientations 5-8 flip the
+    # raw orientation
+    if (($exif_orient >= 5) and ($exif_orient <= 8)) {
+      push @port_list, ($f);
+    } else {
+      push @land_list, ($f);
+    }
+    
+  } else {
+    # Raw orientation is portrait; orientations 5-8 flip the raw
+    # orientation
+    if (($exif_orient >= 5) and ($exif_orient <= 8)) {
+      push @land_list, ($f);
+    } else {
+      push @port_list, ($f);
+    }
+  }
+  
+  # Increase scan count and status report if necessary
+  $scan_count++;
+  status_update("Scan",
+          $scan_count, $#file_list + 1, $prop_dict{'const_status'});
+}
+
 # Time to open the output file
 #
 open(my $fh_out, ">", $arg_ps_path) or
@@ -1537,7 +1603,6 @@ my $photo_i = 0;
 # Keep generating pages while there are photos left
 #
 while ($photo_count > 0) {
-
 
   # Photos go from top to bottom on outer loop, Y coordinates second
   for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
@@ -1569,7 +1634,7 @@ while ($photo_count > 0) {
         $photo_i++;
         
         # Status update if necessary
-        status_update(
+        status_update("Compile",
           $photo_i, $#file_list + 1, $prop_dict{'const_status'});
       }
     }
