@@ -1730,11 +1730,85 @@ for(my $orient_i = 0; $orient_i < 2; $orient_i++) {
     }
     print { $fh_out } "\n";
     
-    # Photos go from top to bottom on outer loop, Y coordinates second
-    for(my $y = 0; $y < $prop_dict{'tile_rows'}; $y++) {
+    # ===
+    # The way that photos are laid out in cells on the page differs
+    # depending on orientation.  The page layout and rendering is always
+    # done in landscape orientation, even in portrait mode.
+    #
+    # However, if landscape mode, we proceed from left to right in the
+    # inner loop, and from top to bottom in the outer loop when laying
+    # out photo cells on the page.
+    #
+    # On the other hand, in portrait mode, we proceed from top to bottom
+    # (in rotated landscape orientation) in the inner loop, and from
+    # right to left in the outer loop when laying out photo cells on the
+    # page.
+    #
+    # Define the approriate inner and outer loop properties here.
+    # ===
+    
+    my $outer_init;
+    my $outer_limit;
+    my $outer_inc;
+    
+    my $inner_init;
+    my $inner_limit;
+    my $inner_inc;
+    
+    if ($orient_i == 0) {
+      # Landscape mode, so outer loop is top to bottom and inner loop is
+      # left to right
+      $outer_init  = 0;
+      $outer_limit = $prop_dict{'tile_rows'};
+      $outer_inc   = 1;
       
-      # Photos go from left to right on inner loop, X coordinates first
-      for(my $x = 0; $x < $prop_dict{'tile_cols'}; $x++) {
+      $inner_init  = 0;
+      $inner_limit = $prop_dict{'tile_cols'};
+      $inner_inc   = 1;
+      
+    } elsif ($orient_i == 1) {
+      # Portrait mode, so outer loop is right to left and inner loop is
+      # top to bottom
+      $outer_init  = $prop_dict{'tile_cols'} - 1;
+      $outer_limit = -1;
+      $outer_inc   = -1;
+      
+      $inner_init  = 0;
+      $inner_limit = $prop_dict{'tile_rows'};
+      $inner_inc   = 1;
+      
+    } else {
+      die "Unknown orientation index, stopped";
+    }
+    
+    # Outer loop
+    for(my $outer = $outer_init;
+        $outer != $outer_limit;
+        $outer = $outer + $outer_inc) {
+      
+      # Inner loop
+      for(my $inner = $inner_init;
+          $inner != $inner_limit;
+          $inner = $inner + $inner_inc) {
+        
+        # Map the outer and inner loop counters to X/Y cell coordinates
+        # depending on the orientation
+        my $x;
+        my $y;
+        
+        if ($orient_i == 0) {
+          # Landscape mode, so outer loop is y and inner loop is x
+          $x = $inner;
+          $y = $outer;
+          
+        } elsif ($orient_i == 1) {
+          # Portrait mode, so outer loop is x and inner loop is y
+          $x = $outer;
+          $y = $inner;
+          
+        } else {
+          die "Unknown orientation index, stopped";
+        }
         
         # Only do something in this location if at least one photo
         # remains
