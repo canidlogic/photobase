@@ -36,7 +36,10 @@ The third parameter is a path to a text file that lists each of the
 source files that should be included in the reel, with one file path per
 line.  Backslash characters in file paths will automatically be changed
 to forward slashes, and no file path may include a single quote
-character.
+character.  All source files in the path should be in compatible
+formats.  For example, if one has both video and audio channels, all
+should have both video and audio channels.  An error will occur if the
+script detects that any of the source files are not appropriate.
 
 The fourth parameter is a textual configuration file that determines the
 details of how the operation works.  See below for further information.
@@ -69,7 +72,7 @@ by C<Config::Tiny>.  It has the following format:
   
   [codec]
   video=-c:v libx264 -preset medium -crf 23
-  audio=-c:a aac -b:a 160k test.mp4
+  audio=-c:a aac -b:a 160k
 
   [scale]
   width=1280
@@ -102,6 +105,9 @@ Finally, the font C<style> is either C<regular>, c<italic>, C<bold>,
 C<bold-italic>, or C<italic-bold>, with the last two choices being
 equivalent.
 
+The C<color> and C<style> properties are optional, and will be set to
+white and regular, respectively, if they are not provided.
+
 The C<[caption]> section identifies how large the automatically
 generated caption videos will be.  After they are rendered, they will be
 scaled down to match the size of the actual source videos.
@@ -113,13 +119,338 @@ sound, just the C<video> options will be present.  For videos that have
 sound, both the C<video> options followed by the C<audio> options will
 be present.
 
+The C<[codec]> properties are optional, and will be set to empty strings
+if they are not provided.
+
 Finally, the C<[scale]> section indicates dimensions to scale the final
 generated video to.  If the source videos are the same dimension as the
 dimensions given in this section, no scaling is done.
 
 =cut
 
-# @@TODO:
+# ==========
+# Local data
+# ==========
+
+# The properties dictionary for properties read from the config file.
+#
+# This is filled with a call to prop_read() at the start of the script.
+# Each property in the config file has a name key in this hash that is
+# the section name followed by an underscore followed by the property
+# name.  For example, the property "name" in the [font] section has the
+# name key "font_name" in this hash.
+#
+# In addition, the reel title property that was passed as a program
+# argument is set as the property "title" in this dictionary.
+#
+my %p;
+
+# The media format dictionary.
+#
+# The properties here are determined from the first media file in the
+# list, and then all subsequent media files are checked to have matching
+# media properties.
+#
+# The properties for ALL media files are:
+#
+#   has_audio : 1 if audio stream present, 0 if audio stream absent
+#   has_video : 1 if video stream present, 0 if video stream absent
+#
+# The following combinations of has_audio and has_video are allowed:
+#
+#    has_audio | has_video | meaning
+#   ===========|===========|=========
+#        1     |     1     | video file with sound (A/V)
+#        1     |     0     | audio file
+#        0     |     1     | video file without sound
+#
+# If has_audio is set, then the following keys are also present:
+#
+#   samp_rate : integer, number of audio samples per second
+#   ch_count  : integer, number of channels; either 1 or 2
+#
+# If has_video is set, then the following keys are also present:
+#
+#   width      : integer, width in pixels of frame
+#   height     : integer, height in pixels of frame
+#   frame_rate : (see below)
+#
+# The frame rate must either be an unsigned integer, or a rational in
+# the form:
+#
+#    ###/1001
+#
+# The ### is a sequence of one or more decimal digits.  The denominator
+# must be 1001, which is used for the common NTSC modes of 29.97 (which
+# is actually 30000/1001) and so forth.
+#
+# The frame rate is stored as a string, with any leading zeros dropped.
+#
+my %mfmt;
+
+# ===============
+# Local functions
+# ===============
+
+# Fill the global properties dictionary %p with properties read from a
+# configuration file and from a given title argument.
+#
+# Parameters:
+#
+#   1: [string] - path to configuration file to read
+#   2: [string] - the reel title parameter
+#
+sub prop_read {
+  
+  # Must be exactly two parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_path  = shift;
+  my $arg_title = shift;
+  
+  # Set types
+  $arg_path  = "$arg_path";
+  $arg_title = "$arg_title";
+  
+  # The given title must only consist of ASCII characters
+  ($arg_title =~ /^[\p{ASCII}]*$/u) or
+    die "Reel title contains non-ASCII characters, stopped";
+  
+  # Given title must only have printing ASCII characters
+  ($arg_title =~ /^[\p{POSIX_Graph} ]*$/a) or
+    die "Reel title contains control codes, stopped";
+  
+  # Given title may not have backslashes
+  ($arg_title =~ /^[^\\]*$/a) or
+    die "Reel title may not contain backslashes, stopped";
+  
+  # Store the title in the dictionary
+  $p{'title'} = $arg_title;
+  
+  # Define all the recognized configuration properties and their types,
+  # using the naming convention of section_propname for the property
+  # names
+  my %prop_list = (
+    apps_ffmpeg  => 'string',
+    apps_ffprobe => 'string',
+    
+    dir_fonts => 'dir',
+    dir_build => 'dir',
+    
+    font_name  => 'name',
+    font_size  => 'imeasure',
+    font_color => 'rgb',
+    font_style => 'style',
+    
+    caption_width  => 'imeasure',
+    caption_height => 'imeasure',
+    
+    codec_video => 'opt',
+    codec_audio => 'opt',
+    
+    scale_width  => 'imeasure',
+    scale_height => 'imeasure'
+  );
+  
+  # Read the configuration file
+  (-f $arg_path) or
+    die "Can't find config file '$arg_path', stopped";
+  
+  my $config = Config::Tiny->read($arg_path);
+  
+  unless ($config) {
+    my $es = Config::Tiny->errstr();
+    die "Failed to load '$arg_path':\n$es\nStopped";
+  }
+  
+  # Set default values
+  unless (exists $p{'font_color'}) {
+    $p{'font_color'} = 0xffffff;
+  }
+  unless (exists $p{'font_style'}) {
+    $p{'font_style'} = 'regular';
+  }
+  unless (exists $p{'codec_video'}) {
+    $p{'codec_video'} = [];
+  }
+  unless (exists $p{'codec_audio'}) {
+    $p{'codec_audio'} = [];
+  }
+  
+  # Now go through all the keys defined in the configuration file and
+  # set them in the properties dictionary
+  for my $k (keys %prop_list) {
+    
+    # Check key format
+    ($k =~ /^[A-Za-z0-9]+_[A-Za-z0-9]+$/a) or
+      die "Property key '$k' has invalid name, stopped";
+    
+    # Parse the key name
+    my $key_sect;
+    my $key_name;
+    
+    ($key_sect, $key_name) = split /_/, $k;
+    
+    # Get the key value type
+    my $key_type = $prop_list{$k};
+    
+    # Ignore if the key section does not exist
+    (exists $config->{$key_sect}) or next;
+    
+    # Ignore if the key does not exist in the section
+    (exists $config->{$key_sect}->{$key_name}) or next;
+    
+    # Get the key value as string
+    my $v = $config->{$key_sect}->{$key_name};
+    $v = "$v";
+    
+    # Handle the appropriate type
+    if ($key_type eq 'string') {
+      # For the plain 'string' type, just use as-is in string format
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'dir') {
+      # For the directory type, make sure the directory exists, then
+      # store
+      (-d $v) or die "Directory '$v' does not exist, stopped";
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'name') {
+      # For the name type, first make sure it contains only ASCII
+      ($v =~ /^[\p{ASCII}]*$/u) or
+        die "Name '$v' may only contain ASCII characters, stopped";
+      
+      # Next, make sure it only contains printing characters and space
+      ($v =~ /^[\p{POSIX_Graph} ]*$/a) or
+        die "Name '$v' contains control characters, stopped";
+      
+      # Next, strip any leading and trailing whitespace
+      $v =~ s/^[\s]+//a;
+      $v =~ s/[\s]+$//a;
+      
+      # Make sure name is not empty
+      (length $v > 0) or
+        die "Names may not be empty, stopped";
+      
+      # Store the name
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'imeasure') {
+      # For the integer measurement type, first make sure that it is a
+      # sequence of one or more decimal digits, optionally surrounded by
+      # whitespace
+      ($v =~ /^[\s]*[0-9]+[\s]*$/u) or
+        die "'$v' is not a valid integer, stopped";
+      
+      # Next, strip any leading and trailing whitespace
+      $v =~ s/^[\s]+//u;
+      $v =~ s/[\s]+$//u;
+      
+      # Convert to integer
+      $v = int($v);
+      
+      # Make sure greater than zero
+      ($v > 0) or
+        die "Integer measurements must be greater than zero, stopped";
+      
+      # Store the integer value
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'rgb') {
+      # For the RGB type, first make sure that it is a sequence of
+      # exactly six base-16 digits, optionally surrounded by whitespace
+      ($v =~ /^[\s]*[0-9A-Fa-f]{6}[\s]*$/u) or
+        die "'$v' is not a valid RGB value, stopped";
+      
+      # Next, strip any leading and trailing whitespace
+      $v =~ s/^[\s]+//u;
+      $v =~ s/[\s]+$//u;
+      
+      # Convert from base-16
+      $v = hex($v);
+      
+      # Store the integer value
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'style') {
+      # For the style type, first strip any leading and trailing
+      # whitespace
+      $v =~ s/^[\s]+//u;
+      $v =~ s/[\s]+$//u;
+      
+      # Next, convert to lowercase
+      $v =~ tr/A-Z/a-z/;
+      
+      # Check that it is one of the recognized values 
+      (($v eq 'regular') or
+          ($v eq 'bold') or ($v eq 'italic') or
+          ($v eq 'bold-italic') or ($v eq 'italic-bold')) or
+        die "Invalid font style '$v', stopped";
+      
+      # Switch the italic-bold value to bold-italic
+      if ($v eq 'italic-bold') {
+        $v = 'bold-italic';
+      }
+      
+      # Store the style
+      $p{$k} = $v;
+      
+    } elsif ($key_type eq 'opt') {
+      # For option string, first make sure only ASCII characters are
+      # used
+      ($v =~ /^[\p{ASCII}]*$/u) or
+        die "Option '$v' may only contain ASCII characters, stopped";
+      
+      # Next, make sure it only contains printing characters and space
+      ($v =~ /^[\p{POSIX_Graph} ]*$/a) or
+        die "Option '$v' contains control characters, stopped";
+      
+      # Next, strip any leading and trailing whitespace
+      $v =~ s/^[\s]+//a;
+      $v =~ s/[\s]+$//a;
+      
+      # If result is empty, store empty option array; else, parse with
+      # space separators into array
+      if (length $v < 1) {
+        $p{$k} = [];
+      } else {
+        my @opts = split ' ', $v;
+        $p{$k} = \@opts;
+      }
+    
+    } else {
+      die "Unrecognized key type, stopped";
+    }
+  }
+  
+  # Make sure that every configuration file property has been entered
+  # into the property dictionary or has a default value
+  for my $k (keys %prop_list) {
+    (exists $p{$k}) or
+      die "Required property '$k' is missing, stopped";
+  }
+}
+
+# ==================
+# Program entrypoint
+# ==================
+
+# Check that we got exactly five parameters
+#
+($#ARGV == 4) or die "Wrong number of program arguments, stopped";
+
+# Grab the arguments
+#
+my $arg_video_path  = $ARGV[0];
+my $arg_map_path    = $ARGV[1];
+my $arg_list_path   = $ARGV[2];
+my $arg_config_path = $ARGV[3];
+my $arg_title       = $ARGV[4];
+
+# Fill the properties dictionary
+#
+prop_read($arg_config_path, $arg_title);
 
 =head1 AUTHOR
 
