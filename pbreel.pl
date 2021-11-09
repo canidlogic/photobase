@@ -4,6 +4,7 @@ use strict;
 # Non-core dependencies
 use Config::Tiny;
 use JSON::Tiny qw(decode_json);
+use Math::Prime::Util qw(gcd);
 
 # Core depedencies
 use File::Spec;
@@ -179,16 +180,16 @@ my %p;
 #   height     : integer, height in pixels of frame
 #   frame_rate : (see below)
 #
-# The frame rate must either be an unsigned integer, or a rational in
-# the form:
+# The frame rate must be a string storing a rational in the form:
 #
-#    ###/1001
+#    ###/???
 #
-# The ### is a sequence of one or more decimal digits.  The denominator
-# must be 1001, which is used for the common NTSC modes of 29.97 (which
-# is actually 30000/1001) and so forth.
+# The ### is a sequence of one or more decimal digits for the numerator
+# and the ??? is a sequence of one or more decimal digits for the
+# denominator.  Neither sequence may begin with a zero.
 #
-# The frame rate is stored as a string, with any leading zeros dropped.
+# However, if the denominator is one, then it should should be dropped
+# and a STRING containing just the integer numerator should be stored.
 #
 my %mfmt;
 
@@ -362,6 +363,106 @@ sub format_check {
       die "Invalid audio sample rate in '$arg_path', stopped";
     (($ch_count == 1) or ($ch_count == 2)) or
       die "Unsupported audio channel count in '$arg_path', stopped";
+  }
+  
+  # If video channel present, determine video-specific parameters
+  if ($has_video) {
+    # Get video info
+    my $video_info = $streams[$video_i];
+    
+    # Get raw width as string
+    ((exists $video_info->{'width'}) and
+        (not ref($video_info->{'width'}))) or
+      die "No video frame width declared in '$arg_path', stopped";
+    $width = $video_info->{'width'};
+    $width = "$width";
+    
+    # Get raw height as string
+    ((exists $video_info->{'height'}) and
+        (not ref($video_info->{'height'}))) or
+      die "No video frame height declared in '$arg_path', stopped";
+    $height = $video_info->{'height'};
+    $height = "$height";
+    
+    # Get raw frame rate as string -- we will use r_frame_rate, which is
+    # the frame rate used for timing frames, as opposed to
+    # avg_frame_rate, which depends on the number of frames actually
+    # present in the video
+    ((exists $video_info->{'r_frame_rate'}) and
+        (not ref($video_info->{'r_frame_rate'}))) or
+      die "No video frame rate declared in '$arg_path', stopped";
+    $frame_rate = $video_info->{'r_frame_rate'};
+    $frame_rate = "$frame_rate";
+    
+    # The width and height must be sequences of one or more decimal
+    # digits
+    ($width =~ /^[0-9]+$/u) or
+      die "Invalid frame width in '$arg_path', stopped";
+    ($height =~ /^[0-9]+$/u) or
+      die "Invalid frame height in '$arg_path', stopped";
+    
+    # Convert width and height to integers
+    $width = int($width);
+    $height = int($height);
+    
+    # Check ranges of width and height
+    ($width > 0) or
+      die "Invalid frame width in '$arg_path', stopped";
+    ($height > 0) or
+      die "Invalid frame height in '$arg_path', stopped";
+    
+    # If the frame rate is an integer rather than a rational, add a
+    # "/1" denominator
+    if ($frame_rate =~ /^[0-9]+$/u) {
+      $frame_rate = $frame_rate . "/1";
+    }
+    
+    # Drop any whitespace surrounding the slash
+    $frame_rate =~ s/[\s]+\//\//ug;
+    $frame_rate =~ s/\/[\s]+/\//ug;
+    
+    # Split into numerator and denominator
+    my @frame_comp = split /\//, $frame_rate;
+    ($#frame_comp == 1) or
+      die "Invalid frame rate in '$arg_path', stopped";
+    
+    my $frame_num = $frame_comp[0];
+    my $frame_den = $frame_comp[1];
+    
+    # Make sure numerator and denominator are sequences of decimal
+    # digits
+    (($frame_num =~ /^[0-9]+$/u) and ($frame_den =~ /^[0-9]+$/u)) or
+      die "Invalid frame rate in '$arg_path', stopped";
+    
+    # Convert numerator and denominator to integers
+    $frame_num = int($frame_num);
+    $frame_den = int($frame_den);
+    
+    # Make sure numerator and denominator are both greater than zero
+    (($frame_num > 0) and ($frame_den > 0)) or
+      die "Invalid frame rate in '$arg_path', stopped";
+    
+    # Proceed with reduction only if denominator greater than one
+    if ($frame_den > 1) {
+      # Get the greatest common divisor between numerator and
+      # denominator
+      my $frame_gcd = gcd($frame_num, $frame_den);
+      
+      # If greatest common divisor is greater than one, then reduce both
+      # numerator and denominator by it
+      if ($frame_gcd > 1) {
+        $frame_num = int($frame_num / $frame_gcd);
+        $frame_den = int($frame_den / $frame_gcd);
+      }
+    }
+    
+    # Assemble the properly reduced frame rate rational, except drop the
+    # denominator if it is one
+    if ($frame_den == 1) {
+      $frame_rate = "$frame_num";
+    } else {
+      $frame_rate = "$frame_num/$frame_den";
+    }
   }
   
   # @@TODO:
