@@ -465,7 +465,60 @@ sub format_check {
     }
   }
   
-  # @@TODO:
+  # Different handling depending on whether we are in verify mode
+  if ($arg_verify) {
+    # We are verifying, so make sure proper keys exist in the format
+    # dictionary
+    ((exists $mfmt{'has_audio'}) and (exists $mfmt{'has_video'})) or
+      die "Invalid format dictionary, stopped";
+    
+    if ($mfmt{'has_audio'}) {
+      ((exists $mfmt{'samp_rate'}) and (exists $mfmt{'ch_count'})) or
+        die "Invalid format dictionary, stopped";
+    }
+    
+    if ($mfmt{'has_video'}) {
+      ((exists $mfmt{'width'}) and (exists $mfmt{'height'}) and
+          (exists $mfmt{'frame_rate'})) or
+        die "Invalid format dictionary, stopped";
+    }
+    
+    # Check stream arrangements are compatible
+    (($mfmt{'has_audio'} == $has_audio) and
+        ($mfmt{'has_video'} == $has_video)) or
+      die "Stream arrangement mismatch in '$arg_path', stopped";
+    
+    # If audio streams, check compatible
+    if ($has_audio) {
+      ($mfmt{'samp_rate'} == $samp_rate) or
+        die "Audio sample rate mismatch in '$arg_path', stopped";
+      ($mfmt{'ch_count'} == $ch_count) or
+        die "Audio channel count mismatch in '$arg_path', stopped";
+    }
+    
+    # If video streams, check compatible
+    if ($has_video) {
+      (($mfmt{'width'} == $width) and ($mfmt{'height'} == $height)) or
+        die "Frame dimensions mistmatch in '$arg_path', stopped";
+      ($mfmt{'frame_rate'} == $frame_rate) or
+        die "Frame rate mismatch in '$arg_path', stopped";
+    }
+  
+  } else {
+    # We are not verifying, so write the current format into the
+    # dictionary
+    $mfmt{'has_audio'} = $has_audio;
+    $mfmt{'has_video'} = $has_video;
+    if ($has_audio) {
+      $mfmt{'samp_rate'} = $samp_rate;
+      $mfmt{'ch_count'} = $ch_count;
+    }
+    if ($has_video) {
+      $mfmt{'width'} = $width;
+      $mfmt{'height'} = $height;
+      $mfmt{'frame_rate'} = $frame_rate;
+    }
+  }
 }
 
 # Fill the global properties dictionary %p with properties read from a
