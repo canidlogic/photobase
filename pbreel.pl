@@ -3,6 +3,10 @@ use strict;
 
 # Non-core dependencies
 use Config::Tiny;
+use JSON::Tiny qw(decode_json);
+
+# Core depedencies
+use File::Spec;
 
 =head1 NAME
 
@@ -191,6 +195,122 @@ my %mfmt;
 # ===============
 # Local functions
 # ===============
+
+# Check the format of a given media file.
+#
+# You must call prop_read() before this function.
+#
+# A flag given indicates whether this is the first media file or a media
+# file after the first.  If this is the first media file, then this
+# function will fill in %mfmt with the information from the media file.
+# If this is not the first media file, then this function will check
+# that the media file follows the format in %mfmt.
+#
+# Parameters:
+#
+#   1: [string ] - path to the media file
+#   2: [boolean] - 0 if this is the first media file, 1 if not
+#
+sub format_check {
+  
+  # Must be exactly two parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_path   = shift;
+  my $arg_verify = shift;
+  
+  # Set types
+  $arg_path = "$arg_path";
+  if ($arg_verify) {
+    $arg_verify = 1;
+  } else {
+    $arg_verify = 0;
+  }
+  
+  # Make sure path doesn't have double quotes
+  ($arg_path =~ /^[^"]*$/u) or
+    die "Path '$arg_path' may not include double quote, stopped";
+  
+  # Check for needed properties
+  (exists $p{'apps_ffprobe'}) or die "Missing properties, stopped";
+  
+  # Media file path must exist as regular file
+  (-f $arg_path) or die "File '$arg_path' does not exist, stopped";
+  
+  # Use FFPROBE in JSON output mode to get information about the media
+  # file, and then parse the returned JSON into a Perl reference
+  my $cmd = $p{'apps_ffprobe'};
+  $cmd = $cmd . ' -loglevel error';
+  $cmd = $cmd . ' -hide_banner';
+  $cmd = $cmd . ' -print_format json';
+  $cmd = $cmd . ' -show_format';
+  $cmd = $cmd . ' -show_streams';
+  $cmd = $cmd . ' -show_streams';
+  $cmd = $cmd . " \"$arg_path\"";
+  
+  my $retval = `$cmd`;
+  (($? >> 8) == 0) or die "Failed to probe '$arg_path', stopped";
+  
+  my $info = decode_json($retval);
+  
+  # The 'streams' property must exist in the JSON and it must be a
+  # reference to an array
+  ((exists $info->{'streams'})
+      and (ref($info->{'streams'}) eq 'ARRAY')) or
+    die "Failed to find media streams in '$arg_path', stopped";
+  
+  # Go through the streams array, and look for "video" and "audio"
+  # streams, ignoring other stream types; get the index of each A/V
+  # stream, and make sure there are no more than one of each type
+  my @streams = @{$info->{'streams'}};
+  
+  my $video_i = -1;
+  my $audio_i = -1;
+  for(my $i = 0; $i <= $#streams; $i++) {
+    
+    # Get the stream info dictionary
+    my $stream_info = $streams[$i];
+    (ref($stream_info) eq 'HASH') or
+      die "Invalid stream descriptor in '$arg_path', stopped";
+    
+    # If stream info dictionary doesn't have a codec type or its codec
+    # type is a reference, skip it
+    ((exists $stream_info->{'codec_type'}) and
+        (not ref($stream_info->{'codec_type'}))) or
+      next;
+    
+    # Get the type of stream from its codec type
+    my $stream_type = $stream_info->{'codec_type'};
+    $stream_type = "$stream_type";
+    
+    # Convert to lowercase
+    $stream_type =~ tr/A-Z/a-z/;
+    
+    # If this is a video or audio stream, record its index, verifying
+    # that there isn't already another stream of its type
+    if ($stream_type eq 'video') {
+      if ($video_i == -1) {
+        $video_i = $i;
+      } else {
+        die "Multiple video streams in '$arg_path', stopped";
+      }
+      
+    } elsif ($stream_type eq 'audio') {
+      if ($audio_i == -1) {
+        $audio_i = $i;
+      } else {
+        die "Multiple audio streams in '$arg_path', stopped";
+      }
+    }
+  }
+  
+  # We must have at least one video or audio stream
+  (($video_i != -1) or ($audio_i != -1)) or
+    die "No audio or video streams in '$arg_path', stopped";
+  
+  # @@TODO:
+}
 
 # Fill the global properties dictionary %p with properties read from a
 # configuration file and from a given title argument.
@@ -451,6 +571,65 @@ my $arg_title       = $ARGV[4];
 # Fill the properties dictionary
 #
 prop_read($arg_config_path, $arg_title);
+
+# Read all the file paths in the given list file into an array,
+# discarding any blank or empty lines, verifying that all paths
+# currently exist as regular files, and checking that the filename only
+# contains ASCII printing characters
+#
+my @file_list;
+
+open(my $fh_list, "<", $arg_list_path) or
+  die "Can't open '$arg_list_path', stopped";
+
+while (<$fh_list>) {
+  # Removing any trailing break from the line
+  chomp;
+  
+  # Skip this line if empty or nothing but whitespace
+  next if /^\s*$/a;
+  
+  # Trim leading and trailing whitespace
+  s/^\s*//a;
+  s/\s*$//a;
+  
+  # Check that file exists
+  (-f $_) or die "Can't find file '$_', stopped";
+  
+  # Get the filename and check that it is only ASCII printing characters
+  my $fname;
+  (undef, undef, $fname) = File::Spec->splitpath($_);
+  
+  ($fname =~ /^[\p{ASCII}]*$/u) or
+    die "Filenames may only contain ASCII characters, stopped";
+  ($fname =~ /^[\p{POSIX_Graph} ]*$/a) or
+    die "Filenames may not contain control characters, stopped";
+  
+  # Add the file path to the list
+  push @file_list, ($_);
+}
+
+close($fh_list);
+
+# Make sure at least one file defined in list
+#
+($#file_list >= 0) or
+  die "Input file list may not be empty, stopped";
+
+# Determine the format from the first file and then check that all other
+# files in the list follow the same format
+#
+my $format_set = 0;
+my $f_count = $#file_list;
+my $f_done = 0;
+for my $f (@file_list) {
+  my $fname;
+  (undef, undef, $fname) = File::Spec->splitpath($f);
+  print STDERR "$0: Scanning '$fname' ($f_done / $f_count)\n";
+  format_check($f, $format_set);
+  $format_set = 1;
+  $f_done++;
+}
 
 =head1 AUTHOR
 
