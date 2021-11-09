@@ -309,6 +309,61 @@ sub format_check {
   (($video_i != -1) or ($audio_i != -1)) or
     die "No audio or video streams in '$arg_path', stopped";
   
+  # Determine has_audio and has_video flags
+  my $has_audio = 0;
+  my $has_video = 0;
+  
+  if ($video_i != -1) {
+    $has_video = 1;
+  }
+  if ($audio_i != -1) {
+    $has_audio = 1;
+  }
+  
+  # Declare specific properties but do not define yet
+  my $samp_rate;
+  my $ch_count;
+  
+  my $width;
+  my $height;
+  my $frame_rate;
+  
+  # If audio channel present, determine audio-specific parameters
+  if ($has_audio) {
+    # Get audio info
+    my $audio_info = $streams[$audio_i];
+    
+    # Get raw sample rate value as string
+    ((exists $audio_info->{'sample_rate'}) and
+        (not ref($audio_info->{'sample_rate'}))) or
+      die "No audio sample rate declared in '$arg_path', stopped";
+    $samp_rate = $audio_info->{'sample_rate'};
+    $samp_rate = "$samp_rate";
+    
+    # Get raw channel count value as string
+    ((exists $audio_info->{'channels'}) and
+        (not ref($audio_info->{'channels'}))) or
+      die "No audio channel count declared in '$arg_path', stopped";
+    $ch_count = $audio_info->{'channels'};
+    $ch_count = "$ch_count";
+    
+    # Both values must be sequences of one or more decimal digits
+    ($samp_rate =~ /^[0-9]+$/u) or
+      die "Invalid audio sample rate in '$arg_path', stopped";
+    ($ch_count =~ /^[0-9]+$/u) or
+      die "Invalid audio channel count in '$arg_path', stopped";
+    
+    # Convert both to integers
+    $samp_rate = int($samp_rate);
+    $ch_count = int($ch_count);
+    
+    # Check ranges
+    ($samp_rate > 0) or
+      die "Invalid audio sample rate in '$arg_path', stopped";
+    (($ch_count == 1) or ($ch_count == 2)) or
+      die "Unsupported audio channel count in '$arg_path', stopped";
+  }
+  
   # @@TODO:
 }
 
@@ -620,15 +675,15 @@ close($fh_list);
 # files in the list follow the same format
 #
 my $format_set = 0;
-my $f_count = $#file_list;
-my $f_done = 0;
+my $f_count = $#file_list + 1;
+my $f_i = 1;
 for my $f (@file_list) {
   my $fname;
   (undef, undef, $fname) = File::Spec->splitpath($f);
-  print STDERR "$0: Scanning '$fname' ($f_done / $f_count)\n";
+  print STDERR "$0: Scanning '$fname' ($f_i / $f_count)\n";
   format_check($f, $format_set);
   $format_set = 1;
-  $f_done++;
+  $f_i++;
 }
 
 =head1 AUTHOR
