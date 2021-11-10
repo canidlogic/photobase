@@ -840,6 +840,97 @@ for my $f (@file_list) {
   $f_i++;
 }
 
+# Next step is to get the file paths to all the temporary intermediate
+# files we will need; begin with parsing the build path into path
+# components
+#
+my $ipath_volume;
+my $ipath_dir;
+($ipath_volume, $ipath_dir, undef) =
+  File::Spec->splitpath($p{'dir_build'}, 1);
+
+# We also need to know the extension that is used for the output file,
+# so we can use the same extension on intermediate files; for safety,
+# use everything from the first "." in the output path, or nothing if
+# there is no "."
+#
+my $ipath_ext;
+if ($arg_video_path =~ /(\..+)$/u) {
+  # Matched the extension
+  $ipath_ext = $1;
+  
+} else {
+  # No extension
+  $ipath_ext = '';
+}
+
+# Define the concatenation file path, which is "i_concat_script.txt"
+# within the build directory; also define the header and trailer videos,
+# which are "i_header" and "i_trailer" with the same extension (if any)
+# as the output file
+#
+my $path_concat =
+  File::Spec->catpath(
+    $ipath_volume,
+    $ipath_dir,
+    "i_concat_script.txt");
+my $path_header =
+  File::Spec->catpath(
+    $ipath_volume,
+    $ipath_dir,
+    "i_header" . $ipath_ext);
+my $path_trailer =
+  File::Spec->catpath(
+    $ipath_volume,
+    $ipath_dir,
+    "i_trailer" . $ipath_ext);
+
+# Define an array of intertitle videos that will be auto-generated and
+# inserted before each component video
+#
+my @path_ititle;
+for (my $i = 1; $i <= $#file_list + 1; $i++) {
+  my $ipath = File::Spec->catpath(
+    $ipath_volume,
+    $ipath_dir,
+    "i_$i" . $ipath_ext);
+  push @path_ititle, ($ipath);
+}
+
+# If we are assembling audio-only media files, define an array of video
+# files that will have the audio along with auto-generated video; else,
+# leave this array empty
+#
+my @path_vf;
+if ($mfmt{'has_audio'} and (not $mfmt{'has_video'})) {
+  for (my $i = 1; $i <= $#file_list + 1; $i++) {
+    my $ipath = File::Spec->catpath(
+      $ipath_volume,
+      $ipath_dir,
+      "v_$i" . $ipath_ext);
+    push @path_vf, ($ipath);
+  }
+}
+
+# Make sure none of the generated intermediate paths currently exist
+#
+(not (-e $path_concat)) or
+  die "Intermediate file '$path_concat' already exists, stopped";
+(not (-e $path_header)) or
+  die "Intermediate file '$path_header' already exists, stopped";
+(not (-e $path_trailer)) or
+  die "Intermediate file '$path_trailer' already exists, stopped";
+for my $p (@path_ititle) {
+  (not (-e $p)) or
+    die "Intermediate file '$p' already exists, stopped";
+}
+for my $p (@path_vf) {
+  (not (-e $p)) or
+    die "Intermediate file '$p' already exists, stopped";
+}
+
+# @@TODO:
+
 =head1 AUTHOR
 
 Noah Johnson, C<noah.johnson@loupmail.com>
