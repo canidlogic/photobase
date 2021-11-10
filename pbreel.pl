@@ -1849,6 +1849,11 @@ my $arg_list_path   = $ARGV[2];
 my $arg_config_path = $ARGV[3];
 my $arg_title       = $ARGV[4];
 
+# Check that target video path doesn't already exist
+#
+(not (-e $arg_video_path)) or
+  die "Output file '$arg_video_path' already exists, stopped";
+
 # Fill the properties dictionary
 #
 prop_read($arg_config_path, $arg_title);
@@ -2240,12 +2245,22 @@ if ($mfmt{'has_audio'}) {
 #
 push @cmd, $arg_video_path;
 
+# Update status
+#
+print STDERR "$0: Building full reel video...\n";
+
 # Invoke FFMPEG to generate the final reel video
 #
 (system(@cmd) == 0) or
   die "Failed to invoke FFMPEG, stopped";
 
-# @@TODO:
+# Clean up temporary intermediate files
+#
+unlink($path_concat);
+unlink($path_header);
+unlink($path_trailer);
+unlink(@path_ititle);
+unlink(@path_vf);
 
 =head1 AUTHOR
 
