@@ -324,9 +324,349 @@ sub compile_graph {
   return $result;
 }
 
+# Auto-generate a video from an audio-only source file.
+#
+# You must call prop_read() before this function, and also use the
+# format_check() function to set the media format dictionary.
+#
+# The temporary path will be overwritten if it exists.  It is used to
+# generate a caption file, which is only required while this function
+# is running.  The temporary caption file is deleted at the end of this
+# function.
+#
+# Parameters:
+#
+#   1: [string] - path to the video to generate
+#   2: [string] - path to the source media file
+#   3: [string] - the duration of the source media file in seconds
+#   4: [string] - the name to display on the video
+#   5: [string] - path to temporary caption file
+#
+sub autovideo {
+  
+  # Must be exactly five parameters
+  ($#_ == 4) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_tpath = shift;
+  my $arg_spath = shift;
+  my $arg_dur   = shift;
+  my $arg_name  = shift;
+  my $arg_capf  = shift;
+  
+  # Set types
+  $arg_tpath = "$arg_tpath";
+  $arg_spath = "$arg_spath";
+  $arg_dur   = $arg_dur + 0.0;
+  $arg_name  = "$arg_name";
+  $arg_capf  = "$arg_capf";
+  
+  # Make sure that source file exists as regular file
+  (-f $arg_spath) or
+    die "Source file '$arg_spath' not found, stopped";
+  
+  # Make sure target file does not exist
+  (not (-e $arg_tpath)) or
+    die "Target path '$arg_tpath' already exists, stopped";
+  
+  # Make sure duration is greater than zero
+  ($arg_dur > 0.0) or
+    die "Source file '$arg_spath' has zero duration, stopped";
+  
+  # The given name must only consist of ASCII characters
+  ($arg_name =~ /^[\p{ASCII}]*$/u) or
+    die "Name contains non-ASCII characters, stopped";
+  
+  # Given name must only have printing ASCII characters, space, and \n
+  ($arg_name =~ /^[\p{POSIX_Graph} \n]*$/a) or
+    die "Name contains control codes, stopped";
+  
+  # Given name may not have backslashes or curly brackets
+  ($arg_name =~ /^[^\\\{\}]*$/a) or
+    die "Name may not contain backslashes or curlies, stopped";
+  
+  # Given name must have at least one visible character
+  ($arg_name =~ /[\p{POSIX_Graph}]/a) or
+    die "Name must have at least one visible character, stopped";
+  
+  # Change line breaks into "\N" control sequences
+  $arg_name =~ s/\n/\\N/ag;
+  
+  # Check for needed parameters
+  my @req_param = (
+                    'caption_width',
+                    'caption_height',
+                    'codec_video',
+                    'codec_audio',
+                    'font_name',
+                    'font_size',
+                    'font_color',
+                    'font_style',
+                    'dir_fonts',
+                    'scale_width',
+                    'scale_height',
+                    'apps_ffmpeg');
+  for my $k (@req_param) {
+    (exists $p{$k}) or
+      die "Missing property '$k', stopped";
+  }
+  
+  # Check that we are in audio-only mode
+  ((exists $mfmt{'has_audio'}) and (exists $mfmt{'has_video'})) or
+    die "Invalid format dictionary, stopped";
+  ($mfmt{'has_audio'} and (not $mfmt{'has_video'})) or
+    die "Wrong stream mode for autovideo, stopped";
+  
+  # We need to create the caption file first, so open it
+  open(my $fh_cap, ">", $arg_capf) or
+    die "Failed to create caption file '$arg_capf', stopped";
+  
+  # First we need to write the metadata section, which includes a
+  # metadata title (just set to "Caption Screen" here), the Advanced Sub
+  # Station Alpha version, the dimensions of the video, and a text
+  # wrapping style that disables any smart wrapping and instead just
+  # wraps on explicit \n and \N line breaks
+  print {$fh_cap} "[Script Info]\n";
+  print {$fh_cap} "Title: Caption Screen\n";
+  print {$fh_cap} "ScriptType: v4.00+\n";
+  print {$fh_cap} "PlayResX: $p{'caption_width'}\n";
+  print {$fh_cap} "PlayResY: $p{'caption_height'}\n";
+  print {$fh_cap} "WrapStyle: 2\n";
+  print {$fh_cap} "\n";
+  
+  # Next we need to declare the caption text style
+  my $bold_val;
+  my $italic_val;
+  my $style_word = $p{'font_style'};
+  
+  if ($style_word eq 'regular') {
+    $bold_val = '0';
+    $italic_val = '0';
+    
+  } elsif ($style_word eq 'bold') {
+    $bold_val = '-1';
+    $italic_val = '0';
+    
+  } elsif ($style_word eq 'italic') {
+    $bold_val = '0';
+    $italic_val = '-1';
+    
+  } elsif (($style_word eq 'bold-italic') or
+              ($style_word eq 'italic-bold')) {
+    $bold_val = '-1';
+    $italic_val = '-1';
+    
+  } else {
+    die "Unrecognized font style '$style_word', stopped";
+  }
+  
+  my @font_prop = (
+                    ['Name', 'Caption'],
+                    ['Fontname', $p{'font_name'}],
+                    ['Fontsize', "$p{'font_size'}"],
+                    ['PrimaryColour',
+                        sprintf('&H00%06X', $p{'font_color'})],
+                    ['BackColour', '&H00000000'],
+                    ['Bold', $bold_val],
+                    ['Italic', $italic_val],
+                    ['Underline', '0'],
+                    ['StrikeOut', '0'],
+                    ['ScaleX', '100'],
+                    ['ScaleY', '100'],
+                    ['Spacing', '0.00'],
+                    ['Angle', '0.00'],
+                    ['BorderStyle', '1'], # outline + drop shadows
+                    ['Outline', '1'],
+                    ['Shadow', '1'],
+                    ['Alignment', '5'],   # like numeric keypad
+                    ['MarginL', '0'],
+                    ['MarginR', '0'],
+                    ['MarginV', '0'],
+                    ['Encoding', '0']
+                  );
+  
+  print {$fh_cap} "[V4+ Styles]\n";
+  print {$fh_cap} "Format: ";
+  
+  my $first_item = 1;
+  for my $fp (@font_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ', ';
+    }
+    print {$fh_cap} $fp->[0];
+  }
+  
+  print {$fh_cap} "\n";
+  print {$fh_cap} "Style: ";
+  
+  $first_item = 1;
+  for my $fp (@font_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ', ';
+    }
+    print {$fh_cap} $fp->[1];
+  }
+  
+  print {$fh_cap} "\n";
+  print {$fh_cap} "\n";
+  
+  # If the total audio duration is less than 30 seconds, then just have
+  # a static title; otherwise, generate captions showing progress in 5%
+  # increments
+  if ($arg_dur < 30.0) {
+    # Less than 30 seconds total duration, so just a static caption
+    my @cap_prop = (
+                      ['Start', '0:00:00.00'],
+                      ['End', sprintf("0:00:%02.2f", $arg_dur)],
+                      ['Style', 'Caption'],
+                      ['Name', 'Generic'],
+                      ['MarginL', '0'],
+                      ['MarginR', '0'],
+                      ['MarginV', '0'],
+                      ['Text', $arg_name]
+                    );
+    
+    print {$fh_cap} "[Events]\n";
+    print {$fh_cap} "Format: ";
+    
+    $first_item = 1;
+    for my $cp (@cap_prop) {
+      if ($first_item) {
+        $first_item = 0;
+      } else {
+        print {$fh_cap} ', ';
+      }
+      print {$fh_cap} $cp->[0];
+    }
+    
+    print {$fh_cap} "\n";
+    print {$fh_cap} "Dialogue: ";
+    
+    $first_item = 1;
+    for my $cp (@cap_prop) {
+      if ($first_item) {
+        $first_item = 0;
+      } else {
+        print {$fh_cap} ',';
+      }
+      print {$fh_cap} $cp->[1];
+    }
+    
+    print {$fh_cap} "\n";
+  
+  } else {
+    # At least 30 seconds total duration, so begin by defining caption
+    # property table with "Start" and "End" properties first and "Text"
+    # property last
+    my @cap_prop = (
+                      ['Start', '0:00:00.00'],
+                      ['End', '0:00:00.00'],
+                      ['Style', 'Caption'],
+                      ['Name', 'Generic'],
+                      ['MarginL', '0'],
+                      ['MarginR', '0'],
+                      ['MarginV', '0'],
+                      ['Text', $arg_name]
+                    );
+    
+    # Print the start of the dialog section 
+    print {$fh_cap} "[Events]\n";
+    print {$fh_cap} "Format: ";
+    
+    $first_item = 1;
+    for my $cp (@cap_prop) {
+      if ($first_item) {
+        $first_item = 0;
+      } else {
+        print {$fh_cap} ', ';
+      }
+      print {$fh_cap} $cp->[0];
+    }
+    
+    print {$fh_cap} "\n";
+    
+    # Compute how many seconds per caption to get 20 different captions
+    # across the whole duration
+    my $cap_dur = $arg_dur / 20;
+    
+    # Now write the 20 captions with a progress bar added to each
+    for(my $i = 0; $i < 20; $i++) {
+      
+      # Compute the start time and end time of this caption
+      my $start_time = $i * $cap_dur;
+      my $end_time = ($i + 1) * $cap_dur;
+      
+      # Determine how many minutes in the start time and end time and
+      # drop the minutes from the times
+      my $start_min = int($start_time / 60.0);
+      my $end_min = int($end_time / 60.0);
+      
+      $start_time = $start_time - ($start_min * 60.0);
+      $end_time = $end_time - ($end_min * 60.0);
+      
+      # Determine how many hours in the start minutes and end minutes
+      # and drop the hours from the times
+      my $start_hrs = int($start_min / 60.0);
+      my $end_hrs = int($end_min / 60.0);
+      
+      $start_min = $start_min - ($start_hrs * 60);
+      $end_min = $end_min - ($end_hrs * 60);
+      
+      # Now format start time and end time in H:MM:SS.FF format
+      $start_time = sprintf("%d:%02d:%05.2f",
+                              $start_hrs, $start_min, $start_time);
+      $end_time = sprintf("%d:%02d:%05.2f",
+                              $end_hrs, $end_min, $end_time);
+      
+      # Write the start time and end time into the caption properties
+      $cap_prop[0][1] = $start_time;
+      $cap_prop[1][1] = $end_time;
+      
+      # Generate the status bar
+      my $status_bar = '[';
+      for(my $j = 0; $j < 20; $j++) {
+        if ($j < $i) {
+          $status_bar = $status_bar . '|';
+        } else {
+          $status_bar = $status_bar . '.';
+        }
+      }
+      $status_bar = $status_bar . ']';
+      
+      # Add the name and status bar to the end of the caption properties
+      $cap_prop[-1][1] = $arg_name . "\\N" . $status_bar;
+      
+      # Print the current caption
+      print {$fh_cap} "Dialogue: ";
+      
+      $first_item = 1;
+      for my $cp (@cap_prop) {
+        if ($first_item) {
+          $first_item = 0;
+        } else {
+          print {$fh_cap} ',';
+        }
+        print {$fh_cap} $cp->[1];
+      }
+      
+      print {$fh_cap} "\n";
+    }
+  }
+  
+  # Caption file written, so close it
+  close($fh_cap);
+  
+  # @@TODO:
+}
+
 # Generate an intertitle video.
 #
-# You must call prop_read() before this function.
+# You must call prop_read() before this function, and also use the
+# format_check() function to set the media format dictionary.
 #
 # The caption text has the following limitations:
 #
@@ -368,7 +708,7 @@ sub intertitle {
   ($arg_text =~ /^[\p{POSIX_Graph} \n]*$/a) or
     die "Caption contains control codes, stopped";
   
-  # Given text may not have backslashes or cury brackets
+  # Given text may not have backslashes or curly brackets
   ($arg_text =~ /^[^\\\{\}]*$/a) or
     die "Caption may not contain backslashes or curlies, stopped";
   
@@ -1167,7 +1507,7 @@ sub prop_read {
   ($arg_title =~ /^[\p{POSIX_Graph} ]*$/a) or
     die "Reel title contains control codes, stopped";
   
-  # Given title may not have backslashes or cury brackets
+  # Given title may not have backslashes or curly brackets
   ($arg_title =~ /^[^\\\{\}]*$/a) or
     die "Reel title may not contain backslashes or curlies, stopped";
   
@@ -1607,6 +1947,29 @@ for (my $i = 1; $i <= $intertitle_count; $i++) {
     $path_ititle[$i - 1],
     "$p{'title'}\n$fname\n$ts_val",
     $path_caption);
+}
+
+# If the source media files do not have video, we need to build all the
+# video files for them
+#
+if (not $mfmt{'has_video'}) {
+  my $video_count = $#file_list + 1;
+  for (my $i = 1; $i <= $video_count; $i++) {
+    # Update status
+    print STDERR "$0: Building video $i / $video_count...\n";
+    
+    # Get the current file name
+    my $fname;
+    (undef, undef, $fname) = File::Spec->splitpath($file_list[$i - 1]);
+    
+    # Build the video
+    autovideo(
+      $path_vf[$i - 1],
+      $file_list[$i - 1],
+      $durations[$i - 1],
+      $fname,
+      $path_caption);
+  }
 }
 
 # @@TODO:
