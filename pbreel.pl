@@ -2076,6 +2076,175 @@ if (not $mfmt{'has_video'}) {
   }
 }
 
+# We now have all required intermediate media files, so we just have to
+# build the concatenation script still; begin by opening the file for
+# writing
+#
+open(my $fh_cat, ">", $path_concat) or
+  die "Failed to create concatenation file '$path_concat', stopped";
+
+# Write the header of the concatenation script
+#
+print {$fh_cat} "ffconcat version 1.0\n\n";
+
+# Add the header file at the beginning with absolute path
+#
+my $path_header_abs = File::Spec->rel2abs($path_header);
+print {$fh_cat} "file '$path_header_abs'\n";
+ 
+# For each source media file, write the intertitle media file and then
+# the source media file; if in audio-only, use the autovideos, else use
+# the original source videos
+#
+for(my $i = 0; $i <= $#file_list; $i++) {
+  
+  # Write the intertitle file after converting to absolute path
+  my $path_ititle_abs = File::Spec->rel2abs($path_ititle[$i]);
+  print {$fh_cat} "file '$path_ititle_abs'\n";
+  
+  # Check whether audio-only and write appropriate media
+  if ($mfmt{'has_audio'} and (not $mfmt{'has_video'})) {
+    # Audio-only source, so write the intermediate autovideo with
+    # absolute path
+    my $path_vf_abs = File::Spec->rel2abs($path_vf[$i]);
+    print {$fh_cat} "file '$path_vf_abs'\n";
+    
+  } else {
+    # Not audio-only source, so just add the source file with absolute
+    # path
+    my $path_abs = File::Spec->rel2abs($file_list[$i]);
+    print {$fh_cat} "file '$path_abs'\n";
+  }
+}
+
+# Add the trailer file at the end with absolute path
+#
+my $path_trailer_abs = File::Spec->rel2abs($path_trailer);
+print {$fh_cat} "file '$path_trailer_abs'\n";
+
+# Finished with writing the concatenation file so close it
+#
+close($fh_cat);
+
+# We're now going to build the map file, so begin by opening it
+#
+open(my $fh_map, ">", $arg_map_path) or
+  die "Failed to create map file '$arg_map_path', stopped";
+
+# Time offset starts at 5 seconds to account for the opening title
+#
+my $time_offs = 5.0;
+
+# Now write each entry in the map file
+#
+for(my $i = 0; $i <= $#file_list; $i++) {
+  
+  # Get name of file
+  my $fname;
+  (undef, undef, $fname) = File::Spec->splitpath($file_list[$i]);
+  
+  # Round current offset down to seconds
+  my $sec = int($time_offs);
+  
+  # Compute minutes and hours, and adjust seconds
+  my $min = int($sec / 60);
+  $sec = $sec - ($min * 60);
+  
+  my $hrs = int($min / 60);
+  $min = $min - ($hrs * 60);
+  
+  # Get time offset and timestamp
+  my $tov = sprintf("%d:%02d:%02d", $hrs, $min, $sec);
+  my $ts = $time_stamps[$i];
+  
+  # Write time offset, name of file, and timestamp to map
+  print {$fh_map} "$tov $fname $ts\n";
+  
+  # Add duration of this video plus five seconds for the initial bumper
+  # to the time offset
+  $time_offs = $time_offs + $durations[$i] + 5.0;
+}
+
+# Finished with writing the map file so close it
+#
+close($fh_map);
+
+# We're ready to build the final FFMPEG rendering command, begin with
+# suppressing unnecessary information but reenabling status reports
+#
+my @cmd;
+push @cmd, $p{'apps_ffmpeg'};
+push @cmd, "-hide_banner";
+push @cmd, "-loglevel";
+push @cmd, "warning";
+push @cmd, "-stats";
+
+# Next, use the concatenation script as a virtual source, and also turn
+# safe mode OFF so that we can use absolute file paths if we need to
+#
+push @cmd, "-safe";
+push @cmd, "0";
+push @cmd, "-i";
+push @cmd, $path_concat;
+
+# If source media has video, check whether the scaling dimensions are
+# different from the source media dimensions, and add scaling if that
+# is the case; in audio-only mode, never scale
+#
+if ($mfmt{'has_video'}) {
+  if (($mfmt{'width'} != $p{'scale_width'}) or
+        ($mfmt{'height'} != $p{'scale_height'})) {
+    
+    # We need scaling -- compile the filter graph
+    my @g;
+    
+    push @g, {
+      name => 'anull',
+      input => '0:a:0',
+      output => 'outa'
+    };
+    
+    push @g, {
+      name => 'scale',
+      input => '0:v:0',
+      output => 'outv',
+      prop => [
+        ['w', "$p{'scale_width'}"],
+        ['h', "$p{'scale_height'}"]
+      ]
+    };
+    
+    my $filter_graph = compile_graph(\@g);
+    
+    # Add the appropriate filter commands to FFMPEG
+    push @cmd, "-filter_complex";
+    push @cmd, $filter_graph;
+    push @cmd, "-map";
+    push @cmd, "[outv]";
+    push @cmd, "-map";
+    push @cmd, "[outa]";
+  }
+}
+
+# Push any video codec options
+#
+push @cmd, @{$p{'codec_video'}};
+
+# If we have audio, push any audio codec options
+#
+if ($mfmt{'has_audio'}) {
+  push @cmd, @{$p{'codec_audio'}};
+}
+
+# Finally, push the path of the file to generate
+#
+push @cmd, $arg_video_path;
+
+# Invoke FFMPEG to generate the final reel video
+#
+(system(@cmd) == 0) or
+  die "Failed to invoke FFMPEG, stopped";
+
 # @@TODO:
 
 =head1 AUTHOR
