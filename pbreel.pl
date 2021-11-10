@@ -197,6 +197,223 @@ my %mfmt;
 # Local functions
 # ===============
 
+# Generate an intertitle video.
+#
+# You must call prop_read() before this function.
+#
+# The caption text has the following limitations:
+#
+#   (1) There must be at least one character that is visible.
+#   (2) Only US-ASCII visible characters, space, and \n may be used.
+#   (3) { } \ characters may not be used.
+#
+# The temporary path will be overwritten if it exists.  It is used to
+# generate a caption file, which is only required while this function
+# is running.
+#
+# Parameters:
+#
+#   1: [string] - path to the video to generate
+#   2: [string] - the caption text
+#   3: [string] - path to temporary caption file
+#
+sub intertitle {
+  
+  # Must be exactly three parameters
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameters
+  my $arg_path = shift;
+  my $arg_text = shift;
+  my $arg_capf = shift;
+  
+  # Set the types
+  $arg_path = "$arg_path";
+  $arg_text = "$arg_text";
+  $arg_capf = "$arg_capf";
+  
+  # The given text must only consist of ASCII characters
+  ($arg_text =~ /^[\p{ASCII}]*$/u) or
+    die "Caption contains non-ASCII characters, stopped";
+  
+  # Given text must only have printing ASCII characters, space, and \n
+  ($arg_text =~ /^[\p{POSIX_Graph} \n]*$/a) or
+    die "Caption contains control codes, stopped";
+  
+  # Given text may not have backslashes or cury brackets
+  ($arg_text =~ /^[^\\\{\}]*$/a) or
+    die "Caption may not contain backslashes or curlies, stopped";
+  
+  # Given text must have at least one visible character
+  ($arg_text =~ /[\p{POSIX_Graph}]/a) or
+    die "Caption must have at least one visible character, stopped";
+  
+  # Change line breaks into "\N" control sequences
+  $arg_text =~ s/\n/\\N/ag;
+  
+  # Check for needed parameters
+  my @req_param = (
+                    'caption_width',
+                    'caption_height',
+                    'codec_video',
+                    'codec_audio',
+                    'font_name',
+                    'font_size',
+                    'font_color',
+                    'font_style',
+                    'dir_fonts',
+                    'scale_width',
+                    'scale_height',
+                    'apps_ffmpeg');
+  for my $k (@req_param) {
+    (exists $p{$k}) or
+      die "Missing property '$k', stopped";
+  }
+  
+  # We need to create the caption file first, so open it
+  open(my $fh_cap, ">", $arg_capf) or
+    die "Failed to create caption file '$arg_capf', stopped";
+  
+  # First we need to write the metadata section, which includes a
+  # metadata title (just set to "Caption Screen" here), the Advanced Sub
+  # Station Alpha version, the dimensions of the video, and a text
+  # wrapping style that disables any smart wrapping and instead just
+  # wraps on explicit \n and \N line breaks
+  print {$fh_cap} "[Script Info]\n";
+  print {$fh_cap} "Title: Caption Screen\n";
+  print {$fh_cap} "ScriptType: v4.00+\n";
+  print {$fh_cap} "PlayResX: $p{'caption_width'}\n";
+  print {$fh_cap} "PlayResY: $p{'caption_height'}\n";
+  print {$fh_cap} "WrapStyle: 2\n";
+  print {$fh_cap} "\n";
+  
+  # Next we need to declare the caption text style
+  my $bold_val;
+  my $italic_val;
+  my $style_word = $p{'font_style'};
+  
+  if ($style_word eq 'regular') {
+    $bold_val = '0';
+    $italic_val = '0';
+    
+  } elsif ($style_word eq 'bold') {
+    $bold_val = '-1';
+    $italic_val = '0';
+    
+  } elsif ($style_word eq 'italic') {
+    $bold_val = '0';
+    $italic_val = '-1';
+    
+  } elsif (($style_word eq 'bold-italic') or
+              ($style_word eq 'italic-bold')) {
+    $bold_val = '-1';
+    $italic_val = '-1';
+    
+  } else {
+    die "Unrecognized font style '$style_word', stopped";
+  }
+  
+  my @font_prop = (
+                    ['Name', 'Caption'],
+                    ['Fontname', $p{'font_name'}],
+                    ['Fontsize', "$p{'font_size'}"],
+                    ['PrimaryColour',
+                        sprintf('&H00%06X', $p{'font_color'})],
+                    ['BackColour', '&H00000000'],
+                    ['Bold', $bold_val],
+                    ['Italic', $italic_val],
+                    ['Underline', '0'],
+                    ['StrikeOut', '0'],
+                    ['ScaleX', '100'],
+                    ['ScaleY', '100'],
+                    ['Spacing', '0.00'],
+                    ['Angle', '0.00'],
+                    ['BorderStyle', '1'], # outline + drop shadows
+                    ['Outline', '1'],
+                    ['Shadow', '1'],
+                    ['Alignment', '5'],   # like numeric keypad
+                    ['MarginL', '0'],
+                    ['MarginR', '0'],
+                    ['MarginV', '0'],
+                    ['Encoding', '0']
+                  );
+  
+  print {$fh_cap} "[V4+ Styles]\n";
+  print {$fh_cap} "Format: ";
+  
+  my $first_item = 1;
+  for my $fp (@font_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ', ';
+    }
+    print {$fh_cap} $fp->[0];
+  }
+  
+  print {$fh_cap} "\n";
+  print {$fh_cap} "Style: ";
+  
+  $first_item = 1;
+  for my $fp (@font_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ', ';
+    }
+    print {$fh_cap} $fp->[1];
+  }
+  
+  print {$fh_cap} "\n";
+  print {$fh_cap} "\n";
+  
+  # Finally, we need to declare the caption, to be shown starting at the
+  # one second mark for three seconds
+  my @cap_prop = (
+                    ['Start', '0:00:01.00'],
+                    ['End', '0:00:04.00'],
+                    ['Style', 'Caption'],
+                    ['Name', 'Generic'],
+                    ['MarginL', '0'],
+                    ['MarginR', '0'],
+                    ['MarginV', '0'],
+                    ['Text', $arg_text]
+                  );
+  
+  print {$fh_cap} "[Events]\n";
+  print {$fh_cap} "Format: ";
+  
+  $first_item = 1;
+  for my $cp (@cap_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ', ';
+    }
+    print {$fh_cap} $cp->[0];
+  }
+  
+  print {$fh_cap} "\n";
+  print {$fh_cap} "Dialogue: ";
+  
+  $first_item = 1;
+  for my $cp (@cap_prop) {
+    if ($first_item) {
+      $first_item = 0;
+    } else {
+      print {$fh_cap} ',';
+    }
+    print {$fh_cap} $cp->[1];
+  }
+  
+  print {$fh_cap} "\n";
+  
+  # Caption file written, so close it
+  close($fh_cap);
+  
+  # @@TODO:
+}
+
 # Check the format of a given media file.
 #
 # You must call prop_read() before this function.
@@ -546,13 +763,17 @@ sub prop_read {
   ($arg_title =~ /^[\p{ASCII}]*$/u) or
     die "Reel title contains non-ASCII characters, stopped";
   
-  # Given title must only have printing ASCII characters
+  # Given title must only have printing ASCII characters and space
   ($arg_title =~ /^[\p{POSIX_Graph} ]*$/a) or
     die "Reel title contains control codes, stopped";
   
-  # Given title may not have backslashes
-  ($arg_title =~ /^[^\\]*$/a) or
-    die "Reel title may not contain backslashes, stopped";
+  # Given title may not have backslashes or cury brackets
+  ($arg_title =~ /^[^\\\{\}]*$/a) or
+    die "Reel title may not contain backslashes or curlies, stopped";
+  
+  # Given title must have at least one visible character
+  ($arg_title =~ /[\p{POSIX_Graph}]/a) or
+    die "Reel title must have at least one visible character, stopped";
   
   # Store the title in the dictionary
   $p{'title'} = $arg_title;
@@ -653,6 +874,10 @@ sub prop_read {
       # Next, make sure it only contains printing characters and space
       ($v =~ /^[\p{POSIX_Graph} ]*$/a) or
         die "Name '$v' contains control characters, stopped";
+      
+      # Next, make sure name doesn't include any comma
+      ($v =~ /^[^,]*$/a) or
+        die "Name '$v' may not contain commas, stopped";
       
       # Next, strip any leading and trailing whitespace
       $v =~ s/^[\s]+//a;
@@ -867,7 +1092,8 @@ if ($arg_video_path =~ /(\..+)$/u) {
 # Define the concatenation file path, which is "i_concat_script.txt"
 # within the build directory; also define the header and trailer videos,
 # which are "i_header" and "i_trailer" with the same extension (if any)
-# as the output file
+# as the output file, as well as the temporary caption path, which is
+# "i_caption.txt" within the build directory
 #
 my $path_concat =
   File::Spec->catpath(
@@ -884,6 +1110,11 @@ my $path_trailer =
     $ipath_volume,
     $ipath_dir,
     "i_trailer" . $ipath_ext);
+my $path_caption =
+  File::Spec->catpath(
+    $ipath_volume,
+    $ipath_dir,
+    "i_caption.txt");
 
 # Define an array of intertitle videos that will be auto-generated and
 # inserted before each component video
@@ -920,6 +1151,8 @@ if ($mfmt{'has_audio'} and (not $mfmt{'has_video'})) {
   die "Intermediate file '$path_header' already exists, stopped";
 (not (-e $path_trailer)) or
   die "Intermediate file '$path_trailer' already exists, stopped";
+(not (-e $path_caption)) or
+  die "Intermediate file '$path_caption' already exists, stopped";
 for my $p (@path_ititle) {
   (not (-e $p)) or
     die "Intermediate file '$p' already exists, stopped";
@@ -928,6 +1161,11 @@ for my $p (@path_vf) {
   (not (-e $p)) or
     die "Intermediate file '$p' already exists, stopped";
 }
+
+# Generate the header and trailer videos
+#
+intertitle($path_header, "Begin reel\n$p{'title'}", $path_caption);
+intertitle($path_header, "End reel\n$p{'title'}", $path_caption);
 
 # @@TODO:
 
