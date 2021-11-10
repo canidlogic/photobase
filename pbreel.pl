@@ -8,6 +8,7 @@ use Math::Prime::Util qw(gcd);
 
 # Core depedencies
 use File::Spec;
+use File::stat;
 
 =head1 NAME
 
@@ -335,7 +336,8 @@ sub compile_graph {
 #
 # The temporary path will be overwritten if it exists.  It is used to
 # generate a caption file, which is only required while this function
-# is running.
+# is running.  The temporary caption file is deleted at the end of this
+# function.
 #
 # Parameters:
 #
@@ -674,7 +676,51 @@ sub intertitle {
     $video_port = 'capv';
   }
   
-  # @@TODO:
+  # Get the compiled FFMPEG filter graph
+  my $filter_graph = compile_graph(\@g);
+  
+  # Now start building the FFMPEG command to generate the intertitle
+  # video; start with the ffmpeg command and suppress the informative
+  # banner and unnecessary information but then turn progress reports
+  # back on
+  my @cmd;
+  push @cmd, $p{'apps_ffmpeg'};
+  push @cmd, "-hide_banner";
+  push @cmd, "-loglevel";
+  push @cmd, "warning";
+  push @cmd, "-stats";
+  
+  # Next the filter chain
+  push @cmd, "-filter_complex";
+  push @cmd, $filter_graph;
+  
+  # Map the output video port
+  push @cmd, "-map";
+  push @cmd, "[$video_port]";
+  
+  # If we have audio, map the output audio port
+  if ($mfmt{'has_audio'}) {
+    push @cmd, "-map";
+    push @cmd, "[outa]";
+  }
+  
+  # Push any video codec options
+  push @cmd, @{$p{'codec_video'}};
+  
+  # If we have audio, push any audio codec options
+  if ($mfmt{'has_audio'}) {
+    push @cmd, @{$p{'codec_audio'}};
+  }
+  
+  # Finally, push the path of the file to generate
+  push @cmd, $arg_path;
+  
+  # Invoke FFMPEG to generate the intertitle video
+  (system(@cmd) == 0) or
+    die "Failed to invoke FFMPEG, stopped";
+  
+  # We can now delete the temporary caption file
+  unlink($arg_capf);
 }
 
 # Check the format of a given media file.
@@ -687,10 +733,21 @@ sub intertitle {
 # If this is not the first media file, then this function will check
 # that the media file follows the format in %mfmt.
 #
+# This function will also determine the date of the recording and return
+# that as a string in YYYY-MM-DD HH:MM:SS format, as well as the
+# duration in seconds of the recording.  These will both be returned in
+# an array.
+#
 # Parameters:
 #
 #   1: [string ] - path to the media file
 #   2: [boolean] - 0 if this is the first media file, 1 if not
+#
+# Return:
+#
+#   [array] two elements, the first being the timestamp of the recording
+#   as a string and the second being the duration in seconds of the
+#   recording
 #
 sub format_check {
   
@@ -999,6 +1056,86 @@ sub format_check {
       $mfmt{'frame_rate'} = $frame_rate;
     }
   }
+  
+  # We need a 'format' property in the JSON and it must be a reference
+  # to a hash
+  ((exists $info->{'format'})
+      and (ref($info->{'format'}) eq 'HASH')) or
+    die "Failed to find format block in '$arg_path', stopped";
+  
+  my $fmtb = $info->{'format'};
+  
+  # If format block has a "start_time" parameter, make sure it is zero
+  if (exists $fmtb->{'start_time'}) {
+    ($fmtb->{'start_time'} =~ /^[0]*[\.]?[0]*$/a) or
+      die "File '$arg_path' doesn't start at t=0, stopped";
+  }
+  
+  # Format block must have a duration parameter
+  (exists $fmtb->{'duration'}) or
+    die "File '$arg_path' lacks a duration, stopped";
+  
+  # Check duration format and store as float
+  (($fmtb->{'duration'} =~ /^[0-9]*[\.]?[0-9]*$/a) and
+      ($fmtb->{'duration'} =~ /[0-9]/a)) or
+    die "File '$arg_path' has invalid duration, stopped";
+  
+  my $media_duration = $fmtb->{'duration'} + 0.0;
+  
+  # Now look for a time embedded in the format block
+  my $found_time = 0;
+  my $media_time;
+  if (exists $fmtb->{'tags'}) {
+    if (exists $fmtb->{'tags'}->{'creation_time'}) {
+      my $cts = "$fmtb->{'tags'}->{'creation_time'}";
+      if ($cts =~
+          /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}/a) {
+        $found_time = 1;
+        $media_time = substr($cts, 0, 19);
+        $media_time =~ s/T/ /ag;
+      }
+    }
+  }
+  
+  # If we didn't find media time in format block, get it from the last
+  # modified time in the file system
+  if (not $found_time) {
+    # Stat the file and get last-modified time as count of seconds since
+    # the Unix epoch
+    my $st = stat($arg_path) or
+      die "Failed to stat '$arg_path', stopped";
+    my $ts = $st->mtime;
+    
+    # Parse into necessary time fields
+    my $tf_sec;
+    my $tf_min;
+    my $tf_hour;
+    my $tf_day;
+    my $tf_mon;
+    my $tf_year;
+    ($tf_sec, $tf_min, $tf_hour, $tf_day, $tf_mon, $tf_year,
+      undef, undef, undef) = gmtime($ts);
+
+    # Fix offsets
+    $tf_year += 1900;
+    $tf_mon++;
+
+    # Format the timestamp
+    $ts = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+                      $tf_year,
+                      $tf_mon,
+                      $tf_day,
+                      $tf_hour,
+                      $tf_min,
+                      $tf_sec);
+    
+    # Record the time
+    $found_time = 1;
+    $media_time = $ts;
+  }
+  
+  # Return timestamp and duration
+  return ($media_time, $media_duration);
 }
 
 # Fill the global properties dictionary %p with properties read from a
@@ -1317,16 +1454,31 @@ close($fh_list);
   die "Input file list may not be empty, stopped";
 
 # Determine the format from the first file and then check that all other
-# files in the list follow the same format
+# files in the list follow the same format; also, record the date for
+# each video in @time_stamps
 #
+my @time_stamps;
+my @durations;
+
 my $format_set = 0;
 my $f_count = $#file_list + 1;
 my $f_i = 1;
 for my $f (@file_list) {
+  # Print status report
   my $fname;
   (undef, undef, $fname) = File::Spec->splitpath($f);
   print STDERR "$0: Scanning '$fname' ($f_i / $f_count)\n";
-  format_check($f, $format_set);
+  
+  # Scan the file and get timestamp and duration
+  my $ts_val;
+  my $dur_val;
+  ($ts_val, $dur_val) = format_check($f, $format_set);
+  
+  # Add timestamp and durations to arrays
+  push @time_stamps, $ts_val;
+  push @durations, $dur_val;
+  
+  # Set the format_set flag and increase file index
   $format_set = 1;
   $f_i++;
 }
@@ -1430,8 +1582,32 @@ for my $p (@path_vf) {
 
 # Generate the header and trailer videos
 #
+print STDERR "$0: Building header intertitle...\n";
 intertitle($path_header, "Begin reel\n$p{'title'}", $path_caption);
-intertitle($path_header, "End reel\n$p{'title'}", $path_caption);
+
+print STDERR "$0: Building trailer intertitle...\n";
+intertitle($path_trailer, "End reel\n$p{'title'}", $path_caption);
+
+# Build all the label intertitle videos
+#
+my $intertitle_count = $#file_list + 1;
+for (my $i = 1; $i <= $intertitle_count; $i++) {
+  # Update status
+  print STDERR "$0: Building intertitle $i / $intertitle_count...\n";
+  
+  # Get the current file name
+  my $fname;
+  (undef, undef, $fname) = File::Spec->splitpath($file_list[$i - 1]);
+  
+  # Get the current timestamp
+  my $ts_val = $time_stamps[$i - 1];
+  
+  # Build the intertitle
+  intertitle(
+    $path_ititle[$i - 1],
+    "$p{'title'}\n$fname\n$ts_val",
+    $path_caption);
+}
 
 # @@TODO:
 
