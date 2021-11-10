@@ -726,7 +726,45 @@ sub autovideo {
   # Get the compiled FFMPEG filter graph
   my $filter_graph = compile_graph(\@g);
   
-  # @@TODO:
+  # Now start building the FFMPEG command to generate the intertitle
+  # video; start with the ffmpeg command and suppress the informative
+  # banner and unnecessary information but then turn progress reports
+  # back on
+  my @cmd;
+  push @cmd, $p{'apps_ffmpeg'};
+  push @cmd, "-hide_banner";
+  push @cmd, "-loglevel";
+  push @cmd, "warning";
+  push @cmd, "-stats";
+  
+  # Now declare the source input audio file
+  push @cmd, "-i";
+  push @cmd, $arg_spath;
+  
+  # Next the filter chain
+  push @cmd, "-filter_complex";
+  push @cmd, $filter_graph;
+  
+  # Map the output video port and audio port
+  push @cmd, "-map";
+  push @cmd, "[$video_port]";
+  
+  push @cmd, "-map";
+  push @cmd, "[outa]";
+  
+  # Push any video codec options and audio codec options
+  push @cmd, @{$p{'codec_video'}};
+  push @cmd, @{$p{'codec_audio'}};
+  
+  # Finally, push the path of the file to generate
+  push @cmd, $arg_tpath;
+  
+  # Invoke FFMPEG to generate the autovideo
+  (system(@cmd) == 0) or
+    die "Failed to invoke FFMPEG, stopped";
+  
+  # We can now delete the temporary caption file
+  unlink($arg_capf);
 }
 
 # Generate an intertitle video.
