@@ -212,7 +212,7 @@ my %mfmt;
 #
 # The name of the filter and the input and output port names may only
 # contain US-ASCII alphanumerics and underscore, and must contain at
-# least one such character.
+# least one such character.  Port names also allow colon
 #
 # The properties array reference contains a sequence of array
 # references, each of which is a two-element key/value pair.  An empty
@@ -261,12 +261,12 @@ sub compile_graph {
     # If input and/or output port names are present, check them
     if (exists $e->{'input'}) {
       (not ref($e->{'input'})) or die "Invalid input port, stopped";
-      ($e->{'input'} =~ /^[A-Za-z0-9_]+$/a) or
+      ($e->{'input'} =~ /^[A-Za-z0-9_\:]+$/a) or
         die "Invalid input port name, stopped";
     }
     if (exists $e->{'output'}) {
       (not ref($e->{'output'})) or die "Invalid output port, stopped";
-      ($e->{'output'} =~ /^[A-Za-z0-9_]+$/a) or
+      ($e->{'output'} =~ /^[A-Za-z0-9_\:]+$/a) or
         die "Invalid output port name, stopped";
     }
     
@@ -659,6 +659,72 @@ sub autovideo {
   
   # Caption file written, so close it
   close($fh_cap);
+  
+  # Convert backslash in caption file path to forward slash and then
+  # check it only has ASCII alphanumeric, underscore, dot, and forward
+  # slash
+  $arg_capf =~ s/\\/\//ag;
+  ($arg_capf =~ /^[A-Za-z0-9_\.\/]+$/a) or
+    die "Invalid caption file path '$arg_capf', stopped";
+  
+  # Begin with an empty filter graph
+  my @g;
+  
+  # We will pass through the audio from the source as-is
+  push @g, {
+    name => 'anull',
+    input => '0:a:0',
+    output => 'outa'
+  };
+  
+  # Now add filters for generating the video stream
+  push @g, {
+    name => 'color',
+    output => 'intv',
+    prop => [
+      ['color', 'Black'],
+      ['size', "$p{'caption_width'}x$p{'caption_height'}"],
+      ['rate', '25'],
+      ['duration', sprintf("%.5f", $arg_dur)]
+    ]
+  };
+  
+  push @g, {
+    name => 'ass',
+    input => 'intv',
+    output => 'capv',
+    prop => [
+      ['filename', "$arg_capf"],
+      ['fontsdir', "$p{'dir_fonts'}"]
+    ]
+  };
+  
+  # If the scale dimensions are different from the caption frame
+  # dimensions, add a scaling filter and set the video mapping port to
+  # the scaling filter output; else, set video mapping port to caption
+  # filter output
+  my $video_port;
+  if (($p{'scale_width'} != $p{'caption_width'}) or
+        ($p{'scale_height'} != $p{'caption_height'})) {
+    # We need scaling
+    push @g, {
+      name => 'scale',
+      input => 'capv',
+      output => 'outv',
+      prop => [
+        ['w', "$p{'scale_width'}"],
+        ['h', "$p{'scale_height'}"]
+      ]
+    };
+    $video_port = 'outv';
+  
+  } else {
+    # We don't need scaling
+    $video_port = 'capv';
+  }
+  
+  # Get the compiled FFMPEG filter graph
+  my $filter_graph = compile_graph(\@g);
   
   # @@TODO:
 }
