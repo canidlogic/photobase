@@ -197,6 +197,132 @@ my %mfmt;
 # Local functions
 # ===============
 
+# Compile an FFMPEG graph into a string.
+#
+# The given graph is a reference to an array that contains one element
+# for each filter that will be in the graph.  Each element is a
+# reference to a hash that defines the filter.  The hash has the
+# following properties:
+#
+#   name   - [string   ; required] the name of the filter
+#   input  - [string   ; optional] the name of the input port
+#   output - [string   ; optional] the name of the output port
+#   prop   - [array ref; optional] the filter properties
+#
+# The name of the filter and the input and output port names may only
+# contain US-ASCII alphanumerics and underscore, and must contain at
+# least one such character.
+#
+# The properties array reference contains a sequence of array
+# references, each of which is a two-element key/value pair.  An empty
+# property array reference is the same as not providing the property
+# array.  Property names may only contain US-ASCII alphanumerics and
+# underscore, while property values may only contain US-ASCII
+# alphanumerics, underscore, forward slash, and dot.  Both property
+# names and property values must have at least one character.
+#
+# Parameters:
+#
+#   1: [array reference] - the graph to compile
+#
+# Return:
+#
+#   [string] the compiled FFMPEG graph
+#
+sub compile_graph {
+  
+  # Must be exactly one parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Grab the parameter
+  my $g = shift;
+  
+  # Check the type
+  (ref($g) eq 'ARRAY') or die "Wrong parameter type, stopped";
+  
+  # Start with an empty compiled result string
+  my $result = '';
+  
+  # Compile each element of the graph
+  for my $e (@$g) {
+    
+    # Make sure element is a reference to a hash
+    (ref($e) eq 'HASH') or die "Invalid graph, stopped";
+    
+    # Make sure element has required name property
+    (exists $e->{'name'}) or die "Invalid filter, stopped";
+    (not ref($e->{'name'})) or die "Invalid filter, stopped";
+    
+    # Check name property
+    ($e->{'name'} =~ /^[A-Za-z0-9_]+$/a) or
+      die "Invalid filter name, stopped";
+    
+    # If input and/or output port names are present, check them
+    if (exists $e->{'input'}) {
+      (not ref($e->{'input'})) or die "Invalid input port, stopped";
+      ($e->{'input'} =~ /^[A-Za-z0-9_]+$/a) or
+        die "Invalid input port name, stopped";
+    }
+    if (exists $e->{'output'}) {
+      (not ref($e->{'output'})) or die "Invalid output port, stopped";
+      ($e->{'output'} =~ /^[A-Za-z0-9_]+$/a) or
+        die "Invalid output port name, stopped";
+    }
+    
+    # If properties map is present, check each element
+    if (exists $e->{'prop'}) {
+      (ref($e->{'prop'}) eq 'ARRAY') or
+        die "Invalid property array, stopped";
+      for my $fp (@{$e->{'prop'}}) {
+        (ref($fp) eq 'ARRAY') or
+          die "Invalid property, stopped";
+        (scalar @$fp == 2) or
+          die "Invalid property, stopped";
+        ($fp->[0] =~ /^[A-Za-z0-9_]+$/a) or
+          die "Invalid property name, stopped";
+        ($fp->[1] =~ /^[A-Za-z0-9_\/\.]+$/a) or
+          die "Invalid property value, stopped";
+      }
+    }
+    
+    # If this is not the first filter, we need a comma and a space to
+    # separate from previous filter
+    if (length $result > 0) {
+      $result = $result . ', ';
+    }
+    
+    # If input port defined, begin with that
+    if (exists $e->{'input'}) {
+      $result = $result . "[$e->{'input'}]";
+    }
+    
+    # Now the name of the filter
+    $result = $result . "$e->{'name'}";
+    
+    # If there is a property map, add each property
+    if (exists $e->{'prop'}) {
+      my $first_prop = 1;
+      for my $fp (@{$e->{'prop'}}) {
+        if ($first_prop) {
+          $result = $result . '=';
+          $first_prop = 0;
+        } else {
+          $result = $result . ':';
+        }
+        $result = $result . "$fp->[0]=$fp->[1]";
+      }
+    }
+    
+    # Finally, if there is an output port, add that
+    if (exists $e->{'output'}) {
+      $result = $result . "[$e->{'output'}]";
+    }
+  }
+  
+  # Return the compiled result
+  return $result;
+}
+
 # Generate an intertitle video.
 #
 # You must call prop_read() before this function.
@@ -410,6 +536,143 @@ sub intertitle {
   
   # Caption file written, so close it
   close($fh_cap);
+  
+  # Make sure we have the has_video and has_audio properties in the
+  # format dictionary
+  ((exists $mfmt{'has_audio'}) and (exists $mfmt{'has_video'})) or
+    die "Invalid format dictionary, stopped";
+  
+  # If audio present, make sure samp_rate and ch_count are present
+  if ($mfmt{'has_audio'}) {
+    ((exists $mfmt{'samp_rate'}) and (exists $mfmt{'ch_count'})) or
+      die "Invalid format dictionary, stopped";
+  }
+  
+  # If video present, make sure width, height, and frame_rate are
+  # present
+  if ($mfmt{'has_video'}) {
+    ((exists $mfmt{'width'}) and
+        (exists $mfmt{'height'}) and
+        (exists $mfmt{'frame_rate'})) or
+      die "Invalid format dictionary, stopped";
+  }
+  
+  # Determine render size for intertitle, which is the same as the width
+  # and height of the source media if a video stream is defined, else
+  # the scale_width and scale_height properties
+  my $render_width;
+  my $render_height;
+  
+  if ($mfmt{'has_video'}) {
+    $render_width = $mfmt{'width'};
+    $render_height = $mfmt{'height'};
+  } else {
+    $render_width = $p{'scale_width'};
+    $render_height = $p{'scale_height'};
+  }
+  
+  # Determine render frame rate, which is from the video stream if there
+  # is video in the source media, else 25 frames per second
+  my $render_rate;
+  
+  if ($mfmt{'has_video'}) {
+    $render_rate = $mfmt{'frame_rate'};
+  } else {
+    $render_rate = "25";
+  }
+  
+  # Convert backslash in caption file path to forward slash and then
+  # check it only has ASCII alphanumeric, underscore, dot, and forward
+  # slash
+  $arg_capf =~ s/\\/\//ag;
+  ($arg_capf =~ /^[A-Za-z0-9_\.\/]+$/a) or
+    die "Invalid caption file path '$arg_capf', stopped";
+  
+  # Begin with an empty filter graph
+  my @g;
+  
+  # If we have audio, then add filters for generating sound
+  if ($mfmt{'has_audio'}) {
+    push @g, {
+      name => 'sine',
+      output => 'intaa',
+      prop => [
+        ['frequency', '440'],
+        ['beep_factor', '2'],
+        ['sample_rate', "$mfmt{'samp_rate'}"],
+        ['duration', '5']
+      ]
+    };
+    
+    push @g, {
+      name => 'afade',
+      input => 'intaa',
+      output => 'intab',
+      prop => [
+        ['type', 'in'],
+        ['start_time', '0.5'],
+        ['duration', '0.5']
+      ]
+    };
+    
+    push @g, {
+      name => 'afade',
+      input => 'intab',
+      output => 'outa',
+      prop => [
+        ['type', 'out'],
+        ['start_time', '4.0'],
+        ['duration', '0.5']
+      ]
+    };
+  }
+  
+  # We always have video on output, so now add filters for generating
+  # the video stream
+  push @g, {
+    name => 'color',
+    output => 'intv',
+    prop => [
+      ['color', 'Black'],
+      ['size', "$p{'caption_width'}x$p{'caption_height'}"],
+      ['rate', "$render_rate"],
+      ['duration', '5']
+    ]
+  };
+  
+  push @g, {
+    name => 'ass',
+    input => 'intv',
+    output => 'capv',
+    prop => [
+      ['filename', "$arg_capf"],
+      ['fontsdir', "$p{'dir_fonts'}"]
+    ]
+  };
+  
+  # If the render dimensions are different from the caption frame
+  # dimensions, add a scaling filter and set the video mapping port to
+  # the scaling filter output; else, set video mapping port to caption
+  # filter output
+  my $video_port;
+  if (($render_width != $p{'caption_width'}) or
+        ($render_height != $p{'caption_height'})) {
+    # We need scaling
+    push @g, {
+      name => 'scale',
+      input => 'capv',
+      output => 'outv',
+      prop => [
+        ['w', "$render_width"],
+        ['h', "$render_height"]
+      ]
+    };
+    $video_port = 'outv';
+  
+  } else {
+    # We don't need scaling
+    $video_port = 'capv';
+  }
   
   # @@TODO:
 }
@@ -861,9 +1124,12 @@ sub prop_read {
       $p{$k} = $v;
       
     } elsif ($key_type eq 'dir') {
-      # For the directory type, make sure the directory exists, then
-      # store
+      # For the directory type, make sure the directory exists, make
+      # sure it only includes ASCII alphanumerics, underscore, dot,
+      # forward slash and is not empty, then store
       (-d $v) or die "Directory '$v' does not exist, stopped";
+      ($v =~ /^[A-Za-z0-9_\.\/]+$/a) or
+        die "Directory path '$v' contains invalid characters, stopped";
       $p{$k} = $v;
       
     } elsif ($key_type eq 'name') {
