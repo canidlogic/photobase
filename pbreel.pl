@@ -1151,9 +1151,14 @@ sub intertitle {
   # Push any video codec options
   push @cmd, @{$p{'codec_video'}};
   
-  # If we have audio, push any audio codec options
+  # If we have audio, push any audio codec options and expand audio
+  # channels if more than one
   if ($mfmt{'has_audio'}) {
     push @cmd, @{$p{'codec_audio'}};
+    if ($mfmt{'ch_count'} > 1) {
+      push @cmd, "-ac";
+      push @cmd, sprintf("%d", $mfmt{'ch_count'});
+    }
   }
   
   # Finally, push the path of the file to generate
