@@ -31,19 +31,21 @@ Create a transcoding pattern file `transcode.txt` that will be used to transcode
     05: -stats
     06: -i
     07: %<
-    08: -c:v
-    09: libx264
-    10: -preset
-    11: slow
-    12: -crf
-    13: 20
-    14: -pix_fmt
-    15: yuv420p
-    16: -c:a
-    17: aac
-    18: -b:a
-    19: 192k
-    20: %> .mov .mp4 : .mp4
+    08: -map_metadata:g
+    09: 0:g
+    10: -c:v
+    11: libx264
+    12: -preset
+    13: slow
+    14: -crf
+    15: 20
+    16: -pix_fmt
+    17: yuv420p
+    18: -c:a
+    19: aac
+    20: -b:a
+    21: 192k
+    22: %> .mov .mp4 : .mp4
 
 Line 1 can just be `ffmpeg` if `ffmpeg` is in the system search path for executables, otherwise it should be replaced with the path to the `ffmpeg` executable.
 
@@ -51,16 +53,18 @@ Lines 2-5 just simplify the status reports of `ffmpeg` so that it works better i
 
 Lines 6-7 declare the input file, with line 7 being a special token that `pbtc.pl` will replace with the path to an original video source file.
 
-Lines 8-15 specify video encoding options for transcoding.  The options shown here use H.264 at excellent quality (`slow` preset, 20 quality setting, where lower settings are higher quality).  Lines 14-15 improve compatibility of video files, but can be left out.  If you trust the video encoding of the source videos, you can avoid a full video re-encode by replacing lines 8-15 with the following:
+Lines 8-9 cause global metadata to be copied over from the source file to the transcoded file.  This is important for preserving the timestamps embedded within recorded files.  (If the source files do not have embedded timestamps, another strategy will be required to preserve timestamps.)
+
+Lines 10-17 specify video encoding options for transcoding.  The options shown here use H.264 at excellent quality (`slow` preset, 20 quality setting, where lower settings are higher quality).  Lines 16-17 improve compatibility of video files, but can be left out.  If you trust the video encoding of the source videos, you can avoid a full video re-encode by replacing lines 10-17 with the following:
 
     -c:v
     copy
 
 While this is much faster, it increases the risk that there will be weird encoding problems when the full reel video is compiled.
 
-Lines 16-19 specify audio encoding options for transcoding.  The options shown here use AAC at a 192kbps audio rate.
+Lines 18-21 specify audio encoding options for transcoding.  The options shown here use AAC at a 192kbps audio rate.
 
-Line 20 is a special command that `pbtc.pl` will replace with the path of an video file in the `fix` subdirectory that will be created.  To the left of the colon is a (case-insensitive) list of input file extensions.  To the right of the colon is the video file extension to use for transcoded video files in the `fix` subdirectory.
+Line 22 is a special command that `pbtc.pl` will replace with the path of an video file in the `fix` subdirectory that will be created.  To the left of the colon is a (case-insensitive) list of input file extensions.  To the right of the colon is the video file extension to use for transcoded video files in the `fix` subdirectory.
 
 ### Step 4 - Transcode
 
